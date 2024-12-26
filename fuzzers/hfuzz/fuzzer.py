@@ -185,7 +185,7 @@ def build_fox_binary():
     if (not is_build_failed) and fuzz_target:
         built_bin = os.path.join(fox_dir, os.path.basename(fuzz_target))
         if os.path.exists(built_bin):
-            shutil.copy(built_bin, os.path.join(out_dir, os.path.basename(fuzz_target)))
+            shutil.copy(built_bin, os.path.join(out_dir, "fox_" + os.path.basename(fuzz_target)))
 
         # 同时也把 FOX_FILES 复制到 /out (如果它们在 fox_dir 里)
         FOX_FILES = [
@@ -295,7 +295,7 @@ def build_ztaint_binary():
     if (not is_build_failed) and fuzz_target:
         built_bin = os.path.join(ztaint_dir, os.path.basename(fuzz_target))
         if os.path.exists(built_bin):
-            shutil.copy(built_bin, os.path.join(out_dir, os.path.basename(fuzz_target)))
+            shutil.copy(built_bin, os.path.join(out_dir, "ztaint_" + os.path.basename(fuzz_target)))
 
         # 同时也将 ZTAINT_FILES 复制到 /out
         ZTAINT_FILES = [
@@ -360,7 +360,7 @@ def build_vanilla_binary():
     if (not is_build_failed) and fuzz_target:
         built_bin = os.path.join(vanilla_dir, os.path.basename(fuzz_target))
         if os.path.exists(built_bin):
-            shutil.copy(built_bin, os.path.join(out_dir, os.path.basename(fuzz_target)))
+            shutil.copy(built_bin, os.path.join(out_dir, "vanilla_" + os.path.basename(fuzz_target)))
 
     return (not is_build_failed)
 
