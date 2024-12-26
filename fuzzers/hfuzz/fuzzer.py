@@ -254,23 +254,7 @@ def build_ztaint_binary():
                 if os.path.exists(tmp_path):
                     shutil.copy(tmp_path, os.path.join(ztaint_dir, f))
 
-            # 在 ztaint 编译结束之后，需要把下列文件复制到 /out：
-            # ztaint_br_node_id_2_cmp_type、ztaint_border_edges、ztaint_max_border_edge_id、
-            # ztaint_max_br_dist_edge_id、ztaint_border_edges_cache
-            # 假设它们也都在 /dev/shm/ 中
-            ZTAINT_FILES = [
-                "ztaint_br_node_id_2_cmp_type",
-                "ztaint_border_edges",
-                "ztaint_max_border_edge_id",
-                "ztaint_max_br_dist_edge_id",
-                "ztaint_border_edges_cache"
-            ]
-            for f in ZTAINT_FILES:
-                zt_file_path = os.path.join("/dev/shm", f)
-                if os.path.exists(zt_file_path):
-                    shutil.copy(zt_file_path, os.path.join(ztaint_dir, f))
-
-            graph_script = "/fox/gen_graph_no_gllvm_15.py"
+            graph_script = "/ztaint/gen_graph_no_gllvm_15.py"
             old_dir = os.getcwd()
             try:
                 os.chdir(ztaint_dir)
@@ -360,7 +344,7 @@ def build_vanilla_binary():
     if (not is_build_failed) and fuzz_target:
         built_bin = os.path.join(vanilla_dir, os.path.basename(fuzz_target))
         if os.path.exists(built_bin):
-            shutil.copy(built_bin, os.path.join(out_dir, "vanilla_" + os.path.basename(fuzz_target)))
+            shutil.copy(built_bin, os.path.join(out_dir, os.path.basename(fuzz_target)))
 
     return (not is_build_failed)
 
