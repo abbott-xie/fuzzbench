@@ -442,16 +442,16 @@ def build():
 
     # 复制 fuzzer 主程序。如果没编译成功, 也许不会用到, 但这里先都拷或者做检查
     if os.path.exists("/fox/afl-fuzz"):
-        shutil.copy("/fox/afl-fuzz", os.path.join(os.environ["OUT"], "fox_4.09c_hybrid_start"))
+        shutil.copy("/fox/afl-fuzz", os.path.join(os.environ["OUT"], "fox_4.30c_hybrid_start"))
     if os.path.exists("/ztaint/afl-fuzz"):
-        shutil.copy("/ztaint/afl-fuzz", os.path.join(os.environ["OUT"], "ztaint_4.09c_hybrid_start"))
+        shutil.copy("/ztaint/afl-fuzz", os.path.join(os.environ["OUT"], "ztaint_4.30c_hybrid_start"))
     if os.path.exists("/afl_vanilla/afl-fuzz"):
         shutil.copy("/afl_vanilla/afl-fuzz", os.path.join(os.environ["OUT"], "afl-fuzz-vanilla"))
-        shutil.copy("/afl_vanilla/afl-fuzz", os.path.join(os.environ["OUT"], "cmplog_4.09c_hybrid_start"))
+        shutil.copy("/afl_vanilla/afl-fuzz", os.path.join(os.environ["OUT"], "cmplog_4.30c_hybrid_start"))
 
     # ensemble_runner.py
-    if os.path.exists("/fox/ensemble_runner.py"):
-        shutil.copy("/fox/ensemble_runner.py", os.environ["OUT"])
+    if os.path.exists("/ztaint/ensemble_runner.py"):
+        shutil.copy("/ztaint/ensemble_runner.py", os.environ["OUT"])
 
     print("[build] Build results:")
     print("  FOX     :", "OK" if built_fox else "FAIL")
@@ -489,26 +489,29 @@ def run_afl_fuzz(input_corpus, output_corpus, target_binary, hide_output=False):
     dictionary_path = utils.get_dictionary_path(target_binary)
     out_dir = os.getenv("OUT")
 
-    fox_bin = os.path.join(out_dir, "fox_4.09c_hybrid_start")
-    zt_bin  = os.path.join(out_dir, "ztaint_4.09c_hybrid_start")
-    cmp_bin = os.path.join(out_dir, "cmplog_4.09c_hybrid_start")
     van_bin = os.path.join(out_dir, "afl-fuzz-vanilla")
 
-    has_any_ensemble = any([os.path.exists(fox_bin),
-                            os.path.exists(zt_bin),
-                            os.path.exists(cmp_bin)])
+    fox_built_path = os.path.join(out_dir, "fox_" + os.path.basename(target_binary))
+    ztaint_built_path = os.path.join(out_dir, "ztaint_" + os.path.basename(target_binary))
+    cmplog_built_path = os.path.join(out_dir, "cmplog_" + os.path.basename(target_binary))
+
+    has_any_ensemble = any([os.path.exists(fox_built_path),
+                            os.path.exists(ztaint_built_path),
+                            os.path.exists(cmplog_built_path)])
     if has_any_ensemble:
         cmd = [
             "python", "ensemble_runner.py",
             "-i", input_corpus, "-o", output_corpus,
             "-b", target_binary
         ]
-        if os.path.exists(fox_bin):
-            cmd += ["--fox_target_binary", target_binary]
-        if os.path.exists(zt_bin):
-            cmd += ["--ztaint_target_binary", target_binary]
-        cmplog_built_path = os.path.join(out_dir, "cmplog_" + os.path.basename(target_binary))
-        if os.path.exists(cmp_bin) and os.path.exists(cmplog_built_path):
+        
+        if os.path.exists(fox_built_path):
+            cmd += ["--fox_target_binary", fox_built_path]
+        
+        if os.path.exists(ztaint_built_path):
+            cmd += ["--ztaint_target_binary", ztaint_built_path]
+        
+        if os.path.exists(cmplog_built_path):
             cmd += ["--cmplog_target_binary", cmplog_built_path]
 
         if dictionary_path:
