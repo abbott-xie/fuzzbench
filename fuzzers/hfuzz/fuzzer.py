@@ -39,16 +39,18 @@ def install_all():
         "scipy==1.10.1", "six==1.16.0", "stack-data==0.6.2", "tabulate==0.9.0",
         "tomli==2.0.1", "traitlets==5.9.0", "typing-extensions==4.7.1",
         "wcwidth==0.2.6",
+        # 新增要求
         "pyelftools==0.30"
     ]
     for p in packages:
         install(p)
 
-
 def prepare_build_environment():
     """
-    在环境变量上进行一些通用设置(如 mbedtls、openthread 的 Wdocumentation 修复)。
-    不再设置 CC/CXX/FUZZER_LIB，因为我们会分别在 build_* 函数里针对性的设置。
+    对 benchmark 进行一些通用修复，如移除 -Wdocumentation/-Werror 等。
+    不再在此处设定CC/CXX/FUZZER_LIB，
+    因为 build_fox_binary、build_ztaint_binary、build_vanilla_binary、build_cmplog_binary
+    会分别在内部设置。
     """
     if is_benchmark("mbedtls"):
         file_path = os.path.join(os.getenv("SRC"), "mbedtls", "library", "CMakeLists.txt")
@@ -57,15 +59,20 @@ def prepare_build_environment():
             subprocess.check_call(subst_cmd, shell=True)
 
     if is_benchmark("openthread"):
-        mbed_cmake_one = os.path.join(os.getenv("SRC"), "openthread/third_party/mbedtls/repo", "library", "CMakeLists.txt")
-        mbed_cmake_two = os.path.join(os.getenv("SRC"), "openthread/third_party/mbedtls/repo", "CMakeLists.txt")
+        mbed_cmake_one = os.path.join(
+            os.getenv("SRC"),
+            "openthread", "third_party", "mbedtls", "repo",
+            "library", "CMakeLists.txt")
+        mbed_cmake_two = os.path.join(
+            os.getenv("SRC"),
+            "openthread", "third_party", "mbedtls", "repo",
+            "CMakeLists.txt")
         if os.path.isfile(mbed_cmake_one):
             subst_cmd = r"sed -i 's/\(-Wdocumentation\)//g' " + mbed_cmake_one
             subprocess.check_call(subst_cmd, shell=True)
         if os.path.isfile(mbed_cmake_two):
             subst_cmd = r"sed -i 's/\(-Werror\)//g' " + mbed_cmake_two
             subprocess.check_call(subst_cmd, shell=True)
-
 
 def build_fox_binary():
     """Build FOX-instrumented binary (non-vanilla)."""
@@ -77,42 +84,49 @@ def build_fox_binary():
     work = os.getenv("WORK")
     pwd = os.getcwd()
 
-    # 切换环境变量到 /fox
+    # 1) 切换编译器到 /fox
     old_cc = os.environ.get("CC")
     old_cxx = os.environ.get("CXX")
     old_lib = os.environ.get("FUZZER_LIB")
+
     os.environ["CC"] = "/fox/afl-clang-fast"
     os.environ["CXX"] = "/fox/afl-clang-fast++"
     os.environ["FUZZER_LIB"] = "/fox/libAFLDriver.a"
 
-    # 打开 dict2file
+    # 2) 输出字典信息
     os.environ["AFL_LLVM_DICT2FILE"] = os.path.join(os.environ["OUT"], "keyval.dict")
     os.environ["AFL_LLVM_DICT2FILE_NO_MAIN"] = "1"
 
     with utils.restore_directory(src), utils.restore_directory(work):
         try:
+            # 编译
             utils.build_benchmark()
 
-            # 拷贝中间信息
+            # 拷贝中间信息 (instrument_meta_data 等)
             for f in ["br_src_map", "strcmp_err_log", "instrument_meta_data"]:
                 path = os.path.join("/dev/shm", f)
                 if os.path.exists(path):
                     shutil.copy(path, os.path.join(os.environ["OUT"], f))
 
-            # 生成 graph metadata (不再使用 get-bc/llvm-dis-15)
+            # 在执行 gen_graph_no_gllvm_15.py 前先 cd 到 $OUT
             fuzz_bin = os.path.join(os.environ["OUT"], os.environ["FUZZ_TARGET"])
-            graph_script = "/fox/gen_graph_no_gllvm_15.py"  # 如有需要可改名
-            subprocess.check_call([
-                "python3", graph_script,
-                fuzz_bin,
-                "instrument_meta_data"
-            ])
+            graph_script = "/fox/gen_graph_no_gllvm_15.py"
+            out_dir = os.environ["OUT"]
+
+            old_dir = os.getcwd()
+            try:
+                os.chdir(out_dir)
+                subprocess.check_call(["python3", graph_script,
+                                       fuzz_bin, "instrument_meta_data"])
+            finally:
+                os.chdir(old_dir)
+
         except subprocess.CalledProcessError:
             print("[build_fox_binary] Failed, skip.")
             is_build_failed = True
         finally:
             os.chdir(pwd)
-            # 恢复原有环境变量
+            # 恢复环境变量
             if old_cc is not None:
                 os.environ["CC"] = old_cc
             if old_cxx is not None:
@@ -121,7 +135,6 @@ def build_fox_binary():
                 os.environ["FUZZER_LIB"] = old_lib
 
     return (not is_build_failed)
-
 
 def build_ztaint_binary():
     """Build ZTaint-instrumented binary."""
@@ -133,7 +146,7 @@ def build_ztaint_binary():
     work = os.getenv("WORK")
     pwd = os.getcwd()
 
-    # 切换环境变量到 /ztaint
+    # 切换到 /ztaint
     old_cc = os.environ.get("CC")
     old_cxx = os.environ.get("CXX")
     old_lib = os.environ.get("FUZZER_LIB")
@@ -149,18 +162,27 @@ def build_ztaint_binary():
         try:
             utils.build_benchmark()
 
+            # 拷贝中间信息
             for f in ["br_src_map", "strcmp_err_log", "instrument_meta_data"]:
                 path = os.path.join("/dev/shm", f)
                 if os.path.exists(path):
                     shutil.copy(path, os.path.join(os.environ["OUT"], f))
 
+            # 同样切换到 $OUT 目录执行脚本
             fuzz_bin = os.path.join(os.environ["OUT"], os.environ["FUZZ_TARGET"])
             graph_script = "/fox/gen_graph_no_gllvm_15.py"
-            subprocess.check_call([
-                "python3", graph_script,
-                fuzz_bin,
-                "instrument_meta_data"
-            ])
+            out_dir = os.environ["OUT"]
+
+            old_dir = os.getcwd()
+            try:
+                os.chdir(out_dir)
+                subprocess.check_call([
+                    "python3", graph_script,
+                    fuzz_bin, "instrument_meta_data"
+                ])
+            finally:
+                os.chdir(old_dir)
+
         except subprocess.CalledProcessError:
             print("[build_ztaint_binary] Failed, skip.")
             is_build_failed = True
@@ -176,6 +198,8 @@ def build_ztaint_binary():
 
     return (not is_build_failed)
 
+def get_vanilla_build_directory(target_directory):
+    return os.path.join(target_directory, "vanilla")
 
 def build_vanilla_binary():
     """Build the vanilla AFL instrumented binary (no CmpLog)."""
@@ -187,7 +211,6 @@ def build_vanilla_binary():
     work = os.getenv("WORK")
     pwd = os.getcwd()
 
-    # 切换环境变量到 /afl_vanilla
     old_cc = os.environ.get("CC")
     old_cxx = os.environ.get("CXX")
     old_lib = os.environ.get("FUZZER_LIB")
@@ -205,8 +228,8 @@ def build_vanilla_binary():
         new_env = os.environ.copy()
         new_env["OUT"] = vanilla_outdir
         if fuzz_target:
-            new_env["FUZZ_TARGET"] = os.path.join(vanilla_outdir, os.path.basename(fuzz_target))
-
+            new_env["FUZZ_TARGET"] = os.path.join(vanilla_outdir,
+                                                  os.path.basename(fuzz_target))
         try:
             utils.build_benchmark(env=new_env)
         except subprocess.CalledProcessError:
@@ -221,8 +244,7 @@ def build_vanilla_binary():
             if old_lib is not None:
                 os.environ["FUZZER_LIB"] = old_lib
 
-    # 如果成功，需要把产物复制回 OUT
-    # 例如 new_env["FUZZ_TARGET"] 就是最终编译产物
+    # 如果成功，把产物复制回 OUT
     if not is_build_failed and fuzz_target:
         built_target = new_env["FUZZ_TARGET"]
         if os.path.exists(built_target):
@@ -230,9 +252,8 @@ def build_vanilla_binary():
 
     return (not is_build_failed)
 
-
 def build_cmplog_binary():
-    """Build the cmplog binary under /afl_vanilla with AFL_LLVM_CMPLOG set."""
+    """Build the cmplog binary under /afl_vanilla with AFL_LLVM_CMPLOG=1."""
     print("[build_cmplog_binary] Building cmplog instrumentation.")
     is_build_failed = False
     subprocess.check_call(["rm", "-f", "/dev/shm/*"])
@@ -241,7 +262,6 @@ def build_cmplog_binary():
     work = os.getenv("WORK")
     pwd = os.getcwd()
 
-    # 仍然使用 /afl_vanilla 但加上 AFL_LLVM_CMPLOG=1
     old_cc = os.environ.get("CC")
     old_cxx = os.environ.get("CXX")
     old_lib = os.environ.get("FUZZER_LIB")
@@ -271,6 +291,7 @@ def build_cmplog_binary():
             is_build_failed = True
         finally:
             os.chdir(pwd)
+            # 恢复变量
             if old_cc is not None:
                 os.environ["CC"] = old_cc
             if old_cxx is not None:
@@ -280,17 +301,15 @@ def build_cmplog_binary():
             if old_cmp is not None:
                 os.environ["AFL_LLVM_CMPLOG"] = old_cmp
             else:
-                if "AFL_LLVM_CMPLOG" in os.environ:
-                    del os.environ["AFL_LLVM_CMPLOG"]
+                os.environ.pop("AFL_LLVM_CMPLOG", None)
 
-    # 如果成功，把最终产物也复制回 OUT
     if not is_build_failed and fuzz_target:
         built_target = new_env["FUZZ_TARGET"]
         if os.path.exists(built_target):
+            # 将其拷贝回 /out，并且改名为 cmplog_<target_binary>
             shutil.copy(built_target, os.path.join(os.getenv("OUT"), "cmplog_" + os.path.basename(fuzz_target)))
 
     return (not is_build_failed)
-
 
 def build():
     """Build benchmark with fox, ztaint, afl_vanilla, cmplog."""
@@ -301,40 +320,33 @@ def build():
     built_fox = build_fox_binary()           # /fox
     built_ztaint = build_ztaint_binary()     # /ztaint
     built_vanilla = build_vanilla_binary()   # /afl_vanilla (no cmplog)
-    built_cmplog = build_cmplog_binary()     # /afl_vanilla (cmplog)
+    built_cmplog = build_cmplog_binary()     # /afl_vanilla (with cmplog)
 
-    # 复制相应的 fuzzer 主程序
-    # FOX
+    # 拷贝对应的 fuzzer 主程序
     if os.path.exists("/fox/afl-fuzz"):
         shutil.copy("/fox/afl-fuzz", os.path.join(os.environ["OUT"], "fox_4.09c_hybrid_start"))
-    # ZTaint
     if os.path.exists("/ztaint/afl-fuzz"):
         shutil.copy("/ztaint/afl-fuzz", os.path.join(os.environ["OUT"], "ztaint_4.09c_hybrid_start"))
-    # vanilla
     if os.path.exists("/afl_vanilla/afl-fuzz"):
         shutil.copy("/afl_vanilla/afl-fuzz", os.path.join(os.environ["OUT"], "afl-fuzz-vanilla"))
-    # cmplog (也可用 /afl_vanilla/afl-fuzz 重命名为 cmplog_4.09c_hybrid_start)
-    # 但一般是同一个 afl-fuzz，不同编译标志
-    if os.path.exists("/afl_vanilla/afl-fuzz"):
+        # 同一个 /afl_vanilla/afl-fuzz 也可作为 cmplog 的可执行文件，但为了区分，这里也拷贝为 cmplog_4.09c_hybrid_start
         shutil.copy("/afl_vanilla/afl-fuzz", os.path.join(os.environ["OUT"], "cmplog_4.09c_hybrid_start"))
 
-    # ensemble_runner.py (若需要)
+    # ensemble_runner 如果需要也可以复制
     if os.path.exists("/fox/ensemble_runner.py"):
         shutil.copy("/fox/ensemble_runner.py", os.environ["OUT"])
 
-    # 可以根据编译是否成功，写一个清单或者简单日志
     print("[build] Build results:")
     print("    FOX     : {}".format("OK" if built_fox else "FAIL"))
     print("    ZTaint  : {}".format("OK" if built_ztaint else "FAIL"))
     print("    Vanilla : {}".format("OK" if built_vanilla else "FAIL"))
     print("    CmpLog  : {}".format("OK" if built_cmplog else "FAIL"))
 
-    # 如果所有都失败，可在这里显式写个 is_vanilla 或直接 raise
+    # 如果全部失败，根据需要写一个标记或者 raise
     if not (built_fox or built_ztaint or built_vanilla or built_cmplog):
-        # 全都失败了，写一个标记也行，或直接退出
         with open(os.path.join(os.getenv("OUT"), "is_vanilla"), "w") as f:
             f.write("all_failed")
-        print("[build] All instrumentation failed - fallback or do something here")
+        print("[build] All instrumentation failed - fallback or do something else.")
 
 
 def prepare_fuzz_environment(input_corpus):
@@ -356,47 +368,51 @@ def prepare_fuzz_environment(input_corpus):
 
 def run_afl_fuzz(input_corpus, output_corpus, target_binary, hide_output=False):
     """
-    您的 ensemble_runner.py 里可根据存在的 fox_*, ztaint_*, cmplog_* 等来判断谁能参与。
-    这里只示例如何检测并调用。实际可完全由 ensemble_runner.py 控制。
+    简单示例：检查 fox_4.09c_hybrid_start、ztaint_4.09c_hybrid_start、cmplog_4.09c_hybrid_start 是否存在，
+    如果存在，就调用 ensemble_runner，否则回退到 afl-fuzz-vanilla。
     """
     dictionary_path = utils.get_dictionary_path(target_binary)
     out_dir = os.getenv("OUT")
 
-    # 简单示例：检查 fox_4.09c_hybrid_start 是否存在
-    # 如果存在就用 ensemble_runner，否则仅跑 vanilla
     fox_path = os.path.join(out_dir, "fox_4.09c_hybrid_start")
     ztaint_path = os.path.join(out_dir, "ztaint_4.09c_hybrid_start")
     cmplog_path = os.path.join(out_dir, "cmplog_4.09c_hybrid_start")
     vanilla_path = os.path.join(out_dir, "afl-fuzz-vanilla")
 
-    found_any = False
-    if os.path.exists(fox_path) or os.path.exists(ztaint_path) or os.path.exists(cmplog_path):
-        # ensemble 模式
-        found_any = True
+    # 是否有可以用于ensemble的binary
+    has_ensemble = (os.path.exists(fox_path) or
+                    os.path.exists(ztaint_path) or
+                    os.path.exists(cmplog_path))
+
+    if has_ensemble:
         command = [
             "python", "ensemble_runner.py",
             "-i", input_corpus, "-o", output_corpus,
             "-b", target_binary
         ]
-        # 按需加 --fox_target_binary / --ztaint_target_binary / --cmplog_target_binary
+        # 如果fox有，就加 --fox_target_binary
         if os.path.exists(fox_path):
             command += ["--fox_target_binary", target_binary]
+
+        # 如果ztaint有，就加 --ztaint_target_binary
         if os.path.exists(ztaint_path):
             command += ["--ztaint_target_binary", target_binary]
-        # 假设 cmplog 编译产物是放在 /out/cmplog_build/<target> => 这里可以根据之前 build_cmplog_binary 产生的文件来写
+
+        # 如果cmplog有，就加 --cmplog_target_binary
+        # 假设 cmplog 编译产物在 /out/cmplog_<fuzz_target> (build_cmplog_binary 时拷贝的)
         cmplog_built = os.path.join(out_dir, "cmplog_" + os.path.basename(target_binary))
         if os.path.exists(cmplog_path) and os.path.exists(cmplog_built):
             command += ["--cmplog_target_binary", cmplog_built]
 
         if dictionary_path:
             command += ["-x", "/out/keyval.dict", dictionary_path]
-        print("[run_afl_fuzz] Ensemble mode command: ", " ".join(command))
+
+        print("[run_afl_fuzz] Ensemble mode command:", " ".join(command))
         output_stream = subprocess.DEVNULL if hide_output else None
         subprocess.check_call(command, stdout=output_stream, stderr=output_stream)
 
-    if not found_any:
-        # 如果 fox / ztaint / cmplog 都没编译成功，就回退 vanilla
-        # 直接启动 afl-fuzz-vanilla
+    else:
+        # 没有可用的 ensemble，就退回 vanilla
         if os.path.exists(vanilla_path):
             command = [
                 vanilla_path,
@@ -408,15 +424,16 @@ def run_afl_fuzz(input_corpus, output_corpus, target_binary, hide_output=False):
                 target_binary
             ]
             if dictionary_path:
+                # 如果有 keyval.dict，则先 -x /out/keyval.dict
                 command += ["-x", "/out/keyval.dict", "-x", dictionary_path]
+
             print("[run_afl_fuzz] Vanilla mode command:", " ".join(command))
             output_stream = subprocess.DEVNULL if hide_output else None
             subprocess.check_call(command, stdout=output_stream, stderr=output_stream)
         else:
             print("[run_afl_fuzz] No valid fuzzer found. Aborting.")
 
-
 def fuzz(input_corpus, output_corpus, target_binary):
-    """Run fuzzing."""
+    """执行具体的fuzz过程。"""
     prepare_fuzz_environment(input_corpus)
     run_afl_fuzz(input_corpus, output_corpus, target_binary)
