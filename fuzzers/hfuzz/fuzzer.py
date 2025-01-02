@@ -88,6 +88,12 @@ def get_cmplog_build_directory(target_directory):
     """Return path to cmplog build directory."""
     return os.path.join(target_directory, "cmplog")
 
+def get_setcover_build_directory(target_directory):
+    return os.path.join(target_directory, "setcover");
+
+def get_libafl_build_directory(target_directory):
+    """Return path to libafl build directory."""
+    return os.path.join(target_directory, "libafl")
 
 def build_fox_binary():
     """
@@ -409,6 +415,112 @@ def build_cmplog_binary():
 
     return (not is_build_failed)
 
+def build_setcover_binary():
+
+    is_build_failed = False
+    print("[build_setcover_binary] Building setcover instrumentation.")
+
+    out_dir = os.getenv("OUT")
+    pwd = os.getcwd()
+    # src = os.path.join(out_dir, "setcover_target_bin")
+    src = os.getenv("SRC")
+    work = os.getenv("WORK")
+
+    fuzz_target = os.getenv("FUZZ_TARGET")
+
+    old_cc = os.environ.get("CC")
+    old_cxx = os.environ.get("CXX")
+    old_cflags = os.environ.get("CFLAGS")
+    old_cxxflags = os.environ.get("CXXFLAGS")
+    old_lib = os.environ.get("FUZZER_LIB")
+    old_cmp = os.environ.get("AFL_LLVM_CMPLOG")
+
+
+    os.environ["CC"] = "/setcover/afl-clang-fast"
+    os.environ["CXX"] = "/setcover/afl-clang-fast++"
+    os.environ["FUZZER_LIB"] = "/afl_vanilla/libAFLDriver.a"
+    # macros = "-DAFL_CFG_PATH=\\\"setcover_sandcov_cfg\\\""
+    # os.environ["CFLAGS"] = macros
+    # os.environ["CXXFLAGS"] = macros
+
+    setcover_dir = get_setcover_build_directory(out_dir)
+
+    if not os.path.exists(setcover_dir):
+        os.mkdir(setcover_dir)
+
+    with utils.restore_directory(src), utils.restore_directory(work):
+        new_env = os.environ.copy()
+        new_env["OUT"] = setcover_dir
+
+        if fuzz_target is None:
+            raise RuntimeError(f"FUZZ_TARGET is not set")
+        if fuzz_target:
+            new_env["FUZZ_TARGET"] = os.path.join(setcover_dir, os.path.basename(fuzz_target))
+    
+    # dst = os.path.join(out_dir, 'setcover_' + os.path.basename(fuzz_target))
+
+    # if os.path.exists(src):
+    #     os.system(f"link {src} {dst}")
+    #     return True 
+    # else:
+    #     return False
+    
+        try:
+            utils.build_benchmark(env=new_env)
+
+            for f in ["gen_graph.py", "setcover_sancov_cfg"]:
+                tmp_path = os.path.join("/setcover", f)
+                if os.path.exists(tmp_path):
+                    shutil.copy(tmp_path, os.path.join(setcover_dir, f))
+
+            
+            graph_script = "/setcover/gen_graph.py"
+            old_dir = os.getcwd()
+            try:
+                os.chdir(setcover_dir)
+                final_fuzz_bin = new_env["FUZZ_TARGET"]
+                subprocess.check_call(["python3", graph_script,
+                                       final_fuzz_bin])
+            finally:
+                os.chdir(old_dir)
+        except subprocess.CalledProcessError:
+            print("[build_setcover_binary] Failed, skip.")
+            is_build_failed = True
+        finally:
+            os.chdir(pwd)
+            if old_cc is not None:
+                os.environ["CC"] = old_cc
+            if old_cxx is not None:
+                os.environ["CXX"] = old_cxx
+            # if old_cflags is not None：
+            #     os.environ["CFLAGS"] = old_cflags
+            # if old_cxxflags is not None:
+            #     os.environ["CXXFLAGS"] = old_cxxflags;
+            if old_lib is not None:
+                os.environ["FUZZER_LIB"] = old_lib
+
+    if (not is_build_failed) and fuzz_target:
+        built_bin = os.path.join(setcover_dir, os.path.basename(fuzz_target))
+        if os.path.exists(built_bin):
+            shutil.copy(
+                built_bin,
+                os.path.join(out_dir, "setcover_" + os.path.basename(fuzz_target))
+            )
+
+    return (not is_build_failed)
+
+def build_libafl_binary():
+    print("[build_libafl_binary] Building libafl instrumentation.")
+    out_dir = os.getenv("OUT")
+    src = os.path.join(out_dir, "libafl_target_bin")
+    fuzz_target = os.getenv("FUZZ_TARGET")
+    dst = os.path.join(out_dir, 'libafl_' + os.path.basename(fuzz_target))
+
+    if os.path.exists(src):
+        os.system(f"link {src} {dst}")
+        return True 
+    else:
+        return False
 
 def build():
     """
@@ -423,6 +535,8 @@ def build():
     built_ztaint  = build_ztaint_binary()
     built_vanilla = build_vanilla_binary()
     built_cmplog  = build_cmplog_binary()
+    build_libafl = build_libafl_binary()
+
 
     # 复制 fuzzer 主程序。如果没编译成功, 也许不会用到, 但这里先都拷或者做检查
     if os.path.exists("/fox/afl-fuzz"):
@@ -432,6 +546,18 @@ def build():
     if os.path.exists("/afl_vanilla/afl-fuzz"):
         shutil.copy("/afl_vanilla/afl-fuzz", os.path.join(os.environ["OUT"], "afl-fuzz-vanilla"))
         shutil.copy("/afl_vanilla/afl-fuzz", os.path.join(os.environ["OUT"], "cmplog_4.30c_hybrid_start"))
+    # @yrd the fuzzer is compiled in $OUT. The fuzzer is $OUT/libafl_fuzzer.
+    # if os.path.exists("/PATH/to/libafl-fuzzer"):
+    #     shutil.copy("/path/to/libafl-fuzzer", os.path.join(os.environ["OUT"], "libafl_fuzzer"))
+    """
+    if os.path.exists("/setcover/main"):
+        shutil.copy("/setcover/main", os.path.join(os.environ["OUT"], "setcover_4.30c_hybrid_start"))
+    """
+    # if os.path.exists("/setcover/gen_graph.py"):
+    #     shutil.copy("/setcover/gen_graph.py", os.path.join(os.environ["OUT"], "gen_graph.py"))
+    if os.path.exists("/setcover/afl-fuzz"):
+        shutil.copy("/setcover/afl-fuzz", os.path.join(os.environ["OUT"], "setcover_fuzzer"))
+        shutil.copy("/setcover/afl-fuzz", os.path.join(os.environ["OUT"], "setcover_4.30c_hybrid_start"))
 
     # ensemble_runner.py
     if os.path.exists("/ztaint/ensemble_runner.py"):
@@ -442,8 +568,10 @@ def build():
     print("  ZTaint  :", "OK" if built_ztaint else "FAIL")
     print("  Vanilla :", "OK" if built_vanilla else "FAIL")
     print("  CmpLog  :", "OK" if built_cmplog else "FAIL")
+    print("  LibAFL  :", "OK" if build_libafl else "FAIL")
+    print("  SetCover:", "OK" if built_setcover else "FAIL")
 
-    if not any([built_fox, built_ztaint, built_vanilla, built_cmplog]):
+    if not any([built_fox, built_ztaint, built_vanilla, built_cmplog, build_libafl]):
         with open(os.path.join(os.getenv("OUT"), "is_vanilla"), "w") as f:
             f.write("all_failed")
         print("[build] All instrumentation failed.")
@@ -464,6 +592,13 @@ def prepare_fuzz_environment(input_corpus):
 
     utils.create_seed_file_for_empty_corpus(input_corpus)
 
+def run_libafl_fuzz(input_corpus, output_corpus, target_binary):
+    out_dir = os.getenv("OUT")
+    target_binary = target_binary
+    subprocess.run(
+        f"{os.path.join(out_dir, target_binary)} --cores 1 --input {input_corpus} --output {output_corpus}",
+        shell=True
+    )
 
 def run_afl_fuzz(input_corpus, output_corpus, target_binary, hide_output=False):
     """
@@ -478,10 +613,14 @@ def run_afl_fuzz(input_corpus, output_corpus, target_binary, hide_output=False):
     fox_built_path = os.path.join(out_dir, "fox_" + os.path.basename(target_binary))
     ztaint_built_path = os.path.join(out_dir, "ztaint_" + os.path.basename(target_binary))
     cmplog_built_path = os.path.join(out_dir, "cmplog_" + os.path.basename(target_binary))
+    libafl_build_path = os.path.join(out_dir, "libafl_" + os.path.basename(target_binary))
+    setcover_build_path = os.path.join(out_dir, "setcover_" + os.path.basename(target_binary))
 
     has_any_ensemble = any([os.path.exists(fox_built_path),
                             os.path.exists(ztaint_built_path),
-                            os.path.exists(cmplog_built_path)])
+                            os.path.exists(cmplog_built_path),
+                            os.path.exists(libafl_build_path),
+                            os.path.exists(setcover_build_path)])
     if has_any_ensemble:
         cmd = [
             "python", "ensemble_runner.py",
@@ -497,6 +636,14 @@ def run_afl_fuzz(input_corpus, output_corpus, target_binary, hide_output=False):
         
         if os.path.exists(cmplog_built_path):
             cmd += ["--cmplog_target_binary", cmplog_built_path]
+            
+
+        if os.path.exists(libafl_build_path):
+            cmd += ["--libafl_target_binary", libafl_build_path]
+         
+
+        if os.path.exists(setcover_build_path):
+            cmd += ["--setcover_target_binary", setcover_build_path]
 
         if dictionary_path:
             cmd += ["-x", os.path.join("/out", "keyval.dict"), dictionary_path]
