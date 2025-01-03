@@ -86,94 +86,96 @@ class AbstractFuzzer:
 
     def get_timeout(self):
         raise NotImplementedError()
-
-class LibAFLFuzzer(AbstractFuzzer):
-    """ lib afl fuzzer """
-    timeout: bool;
-    run_err: Exception
-    time_start: int
-    time_end: int
-    libafl_target_binary: str
-
-    def __init__(
-        self,
-        name,
-        corpus_dir,
-        output_dir,
-        dicts: List[str],
-        target_binary: str,
-        args: List[str]
-    ):
-        self.name = name
-        self.corpus_dir = corpus_dir
-        self.output_dir = output_dir
-        self.dicts = dicts
-        self.args = args
-        self.run_cnt = 0
-        self.command = None
-        self.timeout = False
-        self.run_err = None
-        self.libafl_target_binary = target_binary
     
-    def add_common_args(self):
-        """Add the common arguments to the command."""
-        self.command += ["-t", "1000"]
-        self.command += [
-            '--input', self.corpus_dir,
-            '--output', self.output_dir,
-        ]
-    
-    def build_command(self):
-        self.command = [self.libafl_target_binary]
-        self.add_common_args()
-    
-    def do_run(self):
-        """
-        Run the fuzzer with the specified command.
-        If self.timeout is True, enforce timeout using subprocess.
-        Handle exceptions appropriately.
-        """
-        try:
-            if self.timeout:
-                subprocess.run(self.command, check=True, timeout=self.get_timeout())
-            else:
-                subprocess.run(self.command, check=True)
-            self.run_err = None
-        except subprocess.TimeoutExpired:
-            logging.info(f"Fuzzer {self.name} timed out after {self.get_timeout()} seconds")
-            # Timeout is not considered an error; fuzzer can be re-queued
-            self.run_err = None
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Unexpected error while running the fuzzer")
-            logging.exception(e)
-            self.run_err = e
 
-    def do_run_timed(self):
-        """Run the fuzzer, timing the execution, and save any error if it fails."""
-        self.time_start = time_s()
-        self.do_run()
-        self.time_end = time_s()
+
+# class LibAFLFuzzer(AbstractFuzzer):
+#     """ lib afl fuzzer """
+#     timeout: bool;
+#     run_err: Exception
+#     time_start: int
+#     time_end: int
+#     libafl_target_binary: str
+
+#     def __init__(
+#         self,
+#         name,
+#         corpus_dir,
+#         output_dir,
+#         dicts: List[str],
+#         target_binary: str,
+#         args: List[str]
+#     ):
+#         self.name = name
+#         self.corpus_dir = corpus_dir
+#         self.output_dir = output_dir
+#         self.dicts = dicts
+#         self.args = args
+#         self.run_cnt = 0
+#         self.command = None
+#         self.timeout = False
+#         self.run_err = None
+#         self.libafl_target_binary = target_binary
     
-    def get_timeout(self):
-        return TIMEOUT_LIBAFL;
+#     def add_common_args(self):
+#         """Add the common arguments to the command."""
+#         self.command += ["-t", "1000"]
+#         self.command += [
+#             '--input', self.corpus_dir,
+#             '--output', self.output_dir,
+#         ]
+    
+#     def build_command(self):
+#         self.command = [self.libafl_target_binary]
+#         self.add_common_args()
+    
+#     def do_run(self):
+#         """
+#         Run the fuzzer with the specified command.
+#         If self.timeout is True, enforce timeout using subprocess.
+#         Handle exceptions appropriately.
+#         """
+#         try:
+#             if self.timeout:
+#                 subprocess.run(self.command, check=True, timeout=self.get_timeout())
+#             else:
+#                 subprocess.run(self.command, check=True)
+#             self.run_err = None
+#         except subprocess.TimeoutExpired:
+#             logging.info(f"Fuzzer {self.name} timed out after {self.get_timeout()} seconds")
+#             # Timeout is not considered an error; fuzzer can be re-queued
+#             self.run_err = None
+#         except subprocess.CalledProcessError as e:
+#             logging.error(f"Unexpected error while running the fuzzer")
+#             logging.exception(e)
+#             self.run_err = e
 
-    def run(self):
-        """Build the command, run the fuzzer, and log the result."""
-        self.build_command()
-        self.do_run_timed()
-        logging.info(self.run_info())
-        self.run_cnt += 1
+#     def do_run_timed(self):
+#         """Run the fuzzer, timing the execution, and save any error if it fails."""
+#         self.time_start = time_s()
+#         self.do_run()
+#         self.time_end = time_s()
+    
+#     def get_timeout(self):
+#         return TIMEOUT_LIBAFL;
 
-    def run_info(self):
-        """Get the run info as a JSON string."""
-        return json.dumps({
-            'name': self.name,
-            'run_cnt': self.run_cnt,
-            'time_start': self.time_start,
-            'time_end': self.time_end,
-            'command': self.command,
-            'run_err': str(self.run_err)
-        })
+#     def run(self):
+#         """Build the command, run the fuzzer, and log the result."""
+#         self.build_command()
+#         self.do_run_timed()
+#         logging.info(self.run_info())
+#         self.run_cnt += 1
+
+#     def run_info(self):
+#         """Get the run info as a JSON string."""
+#         return json.dumps({
+#             'name': self.name,
+#             'run_cnt': self.run_cnt,
+#             'time_start': self.time_start,
+#             'time_end': self.time_end,
+#             'command': self.command,
+#             'run_err': str(self.run_err)
+#         })
 
 
 class AFLFuzzer(AbstractFuzzer):
@@ -259,6 +261,63 @@ class AFLFuzzer(AbstractFuzzer):
             'command': self.command,
             'run_err': str(self.run_err)
         })
+
+class LibAFLFuzzer(AFLFuzzer):
+    """ lib afl fuzzer """
+    timeout: bool;
+    run_err: Exception
+    time_start: int
+    time_end: int
+    libafl_target_binary: str
+
+    def __init__(
+        self,
+        corpus_dir,
+        output_dir,
+        dicts: List[str],
+        target_binary: str,
+        libafl_target_binary: str,
+        args: List[str]
+    ):
+        self.libafl_target_binary = libafl_target_binary
+        super().__init__("libafl", corpus_dir, output_dir, dicts, target_binary, args)
+    
+    def add_common_args(self):
+        """Add the common arguments to the command."""
+        self.command += ["-t", "1000"]
+        self.command += [
+            '--input', self.corpus_dir,
+            '--output', self.output_dir,
+        ]
+    
+    def build_command(self):
+        self.command = [self.libafl_target_binary]
+        self.add_common_args()
+    
+    
+    def get_timeout(self):
+        """Get the timeout value for the LibAFL fuzzer (in seconds)."""
+        return TIMEOUT_LIBAFL
+    def do_run(self):
+        """
+        Override to set LD_PRELOAD for LibAFL-specific runs.
+        """
+        fuzzer_env = os.environ.copy()
+        fuzzer_env['LD_PRELOAD'] = '/usr/lib/x86_64-linux-gnu/libjemalloc.so.2'
+        try:
+            if self.timeout:
+                subprocess.run(self.command, check=True, timeout=self.get_timeout(), env=fuzzer_env)
+            else:
+                subprocess.run(self.command, check=True, env=fuzzer_env)
+            self.run_err = None
+        except subprocess.TimeoutExpired:
+            logging.info(f"Fuzzer {self.name} timed out after {self.get_timeout()} seconds")
+            self.run_err = None
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Unexpected error while running the fuzzer")
+            logging.exception(e)
+            self.run_err = e
+
 
 class SetCoverFuzzer(AFLFuzzer):
     setcover_target_binary: str
@@ -473,7 +532,6 @@ class EnsembleFuzzer:
         if libafl_target_binary:
             self.fuzzer_queue.append(
                 LibAFLFuzzer(
-                    name = "LibAFLFuzzer",
                     corpus_dir=None,
                     output_dir=None,
                     dicts=self.dicts,

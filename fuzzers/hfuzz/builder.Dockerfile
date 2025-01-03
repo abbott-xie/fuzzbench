@@ -123,11 +123,11 @@ RUN cd /libafl/fuzzers/fuzzbench/fuzzbench && \
 # RUN cargo install cargo-make
 # build afl-cc, afl-cxx compilers
 
-RUN cd $SRC && ls ./build.sh
-RUN cd $SRC && CC=/libafl/fuzzers/fuzzbench/fuzzbench/target/release-fuzzbench/libafl_cc \
-    CXX=/libafl/fuzzers/fuzzbench/fuzzbench/target/release-fuzzbench/libafl_cxx \
-    CFLAGS= CXXFLAGS= FUZZER_LIB="/stub_rt.a /libafl/fuzzers/fuzzbench/fuzzbench/target/release-fuzzbench/libfuzzbench.a" \
-    ./build.sh 
-RUN mv $OUT/cms_transform_fuzzer $OUT/libafl_target_bin
-RUN $OUT/libafl_target_bin --help 
+# RUN cd $SRC && ls ./build.sh
+# RUN cd $SRC && CC=/libafl/fuzzers/fuzzbench/fuzzbench/target/release-fuzzbench/libafl_cc \
+#     CXX=/libafl/fuzzers/fuzzbench/fuzzbench/target/release-fuzzbench/libafl_cxx \
+#     CFLAGS= CXXFLAGS= FUZZER_LIB="/stub_rt.a /libafl/fuzzers/fuzzbench/fuzzbench/target/release-fuzzbench/libfuzzbench.a" \
+#     ./build.sh 
+# RUN mv $OUT/cms_transform_fuzzer $OUT/libafl_target_bin
+# RUN $OUT/libafl_target_bin --help 
 

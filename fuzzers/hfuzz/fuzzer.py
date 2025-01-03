@@ -509,18 +509,84 @@ def build_setcover_binary():
 
     return (not is_build_failed)
 
+# def build_libafl_binary():
+#     print("[build_libafl_binary] Building libafl instrumentation.")
+#     out_dir = os.getenv("OUT")
+#     src = os.path.join(out_dir, "libafl_target_bin")
+#     fuzz_target = os.getenv("FUZZ_TARGET")
+#     dst = os.path.join(out_dir, 'libafl_' + os.path.basename(fuzz_target))
+
+#     if os.path.exists(src):
+#         os.system(f"link {src} {dst}")
+#         return True 
+#     else:
+#         return False
+    
 def build_libafl_binary():
     print("[build_libafl_binary] Building libafl instrumentation.")
-    out_dir = os.getenv("OUT")
-    src = os.path.join(out_dir, "libafl_target_bin")
-    fuzz_target = os.getenv("FUZZ_TARGET")
-    dst = os.path.join(out_dir, 'libafl_' + os.path.basename(fuzz_target))
+    is_build_failed = False
 
-    if os.path.exists(src):
-        os.system(f"link {src} {dst}")
-        return True 
-    else:
-        return False
+    subprocess.check_call(["rm", "-f", "/dev/shm/*"])
+
+    src = os.getenv("SRC")
+    work = os.getenv("WORK")
+    fuzz_target = os.getenv("FUZZ_TARGET")
+    out_dir = os.getenv("OUT")
+    pwd = os.getcwd()
+
+    old_cc = os.environ.get("CC")
+    old_cxx = os.environ.get("CXX")
+    old_lib = os.environ.get("FUZZER_LIB")
+
+
+    """Build benchmark."""
+    os.environ['CC'] = ('/libafl/fuzzers/fuzzbench/fuzzbench'
+                        '/target/release-fuzzbench/libafl_cc')
+    os.environ['CXX'] = ('/libafl/fuzzers/fuzzbench/fuzzbench'
+                         '/target/release-fuzzbench/libafl_cxx')
+
+    os.environ['ASAN_OPTIONS'] = 'abort_on_error=0:allocator_may_return_null=1'
+    os.environ['UBSAN_OPTIONS'] = 'abort_on_error=0'
+
+    cflags = ['--libafl']
+    cxxflags = ['--libafl', '--std=c++14']
+    utils.append_flags('CFLAGS', cflags)
+    utils.append_flags('CXXFLAGS', cxxflags)
+    utils.append_flags('LDFLAGS', cflags)
+
+    os.environ['FUZZER_LIB'] = '/stub_rt.a'
+
+    libafl_dir = get_libafl_build_directory(out_dir)
+    if not os.path.exists(libafl_dir):
+        os.mkdir(libafl_dir)
+
+    with utils.restore_directory(src), utils.restore_directory(work):
+        new_env = os.environ.copy()
+        new_env["OUT"] = libafl_dir
+        if fuzz_target:
+            new_env["FUZZ_TARGET"] = os.path.join(libafl_dir, os.path.basename(fuzz_target))
+
+        try:
+            utils.build_benchmark(env=new_env)
+
+        except subprocess.CalledProcessError:
+            print("[build_libafl_binary] Failed, skip.")
+            is_build_failed = True
+        finally:
+            os.chdir(pwd)
+            if old_cc is not None:
+                os.environ["CC"] = old_cc
+            if old_cxx is not None:
+                os.environ["CXX"] = old_cxx
+            if old_lib is not None:
+                os.environ["FUZZER_LIB"] = old_lib
+
+    if (not is_build_failed) and fuzz_target:
+        built_bin = os.path.join(libafl_dir, os.path.basename(fuzz_target))
+        if os.path.exists(built_bin):
+            shutil.copy(built_bin, os.path.join(out_dir, "libafl_" + os.path.basename(fuzz_target)))
+
+    return (not is_build_failed)
 
 def build():
     """
@@ -535,6 +601,7 @@ def build():
     built_ztaint  = build_ztaint_binary()
     built_vanilla = build_vanilla_binary()
     built_cmplog  = build_cmplog_binary()
+    built_setcover = build_setcover_binary()
     build_libafl = build_libafl_binary()
 
 
@@ -558,6 +625,7 @@ def build():
     if os.path.exists("/setcover/afl-fuzz"):
         shutil.copy("/setcover/afl-fuzz", os.path.join(os.environ["OUT"], "setcover_fuzzer"))
         shutil.copy("/setcover/afl-fuzz", os.path.join(os.environ["OUT"], "setcover_4.30c_hybrid_start"))
+
 
     # ensemble_runner.py
     if os.path.exists("/ztaint/ensemble_runner.py"):
@@ -592,13 +660,13 @@ def prepare_fuzz_environment(input_corpus):
 
     utils.create_seed_file_for_empty_corpus(input_corpus)
 
-def run_libafl_fuzz(input_corpus, output_corpus, target_binary):
-    out_dir = os.getenv("OUT")
-    target_binary = target_binary
-    subprocess.run(
-        f"{os.path.join(out_dir, target_binary)} --cores 1 --input {input_corpus} --output {output_corpus}",
-        shell=True
-    )
+# def run_libafl_fuzz(input_corpus, output_corpus, target_binary):
+#     out_dir = os.getenv("OUT")
+#     target_binary = target_binary
+#     subprocess.run(
+#         f"{os.path.join(out_dir, target_binary)} --cores 1 --input {input_corpus} --output {output_corpus}",
+#         shell=True
+#     )
 
 def run_afl_fuzz(input_corpus, output_corpus, target_binary, hide_output=False):
     """
