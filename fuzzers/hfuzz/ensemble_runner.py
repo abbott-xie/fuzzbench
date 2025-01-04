@@ -535,7 +535,8 @@ class EnsembleFuzzer:
                     corpus_dir=None,
                     output_dir=None,
                     dicts=self.dicts,
-                    target_binary=libafl_target_binary,
+                    target_binary=target_binary,
+                    libafl_target_binary=libafl_target_binary,
                     args=self.args
                 )
             )
