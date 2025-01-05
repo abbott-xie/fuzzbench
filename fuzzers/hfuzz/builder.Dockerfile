@@ -40,13 +40,14 @@ RUN git -C /hfuzz1 checkout instrument_specific_4.30c
 RUN git clone https://github.com/abbott-xie/AFLplusplus.git /hfuzz2
 RUN git -C /hfuzz2 checkout ada_taint_log_v4.30c
 
+RUN git clone https://github.com/abbott-xie/AFLplusplus.git /hfuzz3
+RUN git -C /hfuzz3 checkout hfuzz3
+
 # Download afl++.
 RUN git clone -b dev https://github.com/AFLplusplus/AFLplusplus /afl_vanilla  && \
     cd /afl_vanilla  && \
     git checkout tags/v4.30c || \
     true
-
-RUN git clone https://github.com/Sweetaroo/SeedScheduleTest.git /hfuzz3
 
 # Install dependencies.
 RUN apt-get update && \
