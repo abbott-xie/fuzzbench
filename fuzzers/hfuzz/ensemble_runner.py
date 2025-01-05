@@ -494,9 +494,16 @@ class EnsembleFuzzer:
         self.args = args    # Store target binary arguments
         self.fuzzer_queue = deque()
 
-        # 1. 如果没有提供这几个参数，就不会将其添加到队列
-        #   - 注意这里默认 target_binary 是普通的 AFL 编译产物，必需的
-        #   - cmplog_target_binary、hfuzz1_target_binary、hfuzz2_target_binary 则是可选的
+        if hfuzz1_target_binary:
+            self.fuzzer_queue.append(
+                HFuzz1Fuzzer(
+                    corpus_dir=None,
+                    output_dir=None,
+                    dicts=self.dicts,
+                    target_binary=hfuzz1_target_binary,
+                    args=self.args
+                )
+            )
         if hfuzz2_target_binary:
             self.fuzzer_queue.append(
                 HFuzz2Fuzzer(
@@ -505,16 +512,6 @@ class EnsembleFuzzer:
                     dicts=self.dicts,
                     target_binary=hfuzz2_target_binary,
                     cmplog_target_binary=cmplog_target_binary,
-                    args=self.args
-                )
-            )
-        if hfuzz1_target_binary:
-            self.fuzzer_queue.append(
-                HFuzz1Fuzzer(
-                    corpus_dir=None,
-                    output_dir=None,
-                    dicts=self.dicts,
-                    target_binary=hfuzz1_target_binary,
                     args=self.args
                 )
             )
