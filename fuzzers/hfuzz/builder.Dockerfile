@@ -48,6 +48,18 @@ RUN git clone -b dev https://github.com/AFLplusplus/AFLplusplus /afl_vanilla  &&
     git checkout tags/v4.30c || \
     true
 
+RUN git clone https://github.com/Sweetaroo/SeedScheduleTest.git /setcover
+
+# Install dependencies.
+RUN apt-get update && \
+    apt-get remove -y llvm-10 && \
+    apt-get install -y \
+        build-essential \
+        lsb-release wget software-properties-common gnupg && \
+    apt-get install -y wget libstdc++5 libtool-bin automake flex bison \
+        libglib2.0-dev libpixman-1-dev python3-setuptools unzip \
+        apt-utils apt-transport-https ca-certificates libc6-dev joe curl
+
 # Build without Python support as we don't need it.
 # Set AFL_NO_X86 to skip flaky tests.
 RUN cd /afl_vanilla && \
@@ -67,3 +79,55 @@ RUN cd /ztaint && \
     export CC=clang-15 AFL_NO_X86=1 && \
     PYTHON_INCLUDE=/ make && \
     cp utils/aflpp_driver/libAFLDriver.a /
+
+# The setcover fuzzer
+COPY ./ensemble_runner.py /ztaint/ensemble_runner.py
+# COPY ./setcover /setcover
+RUN cd /setcover && \
+    unset CFLAGS CXXFLAGS && \
+    export CC=clang-15 AFL_NO_X86=1 && \
+    PYTHON_INCLUDE=/ CFLAGS="-DAFL_CFG_PATH=\\\"/out/setcover/setcover_sancov_cfg\\\"" CXXFLAGS="-DAFL_CFG_PATH=\\\"/out/setcover/setcover_sancov_cfg\\\"" make source-only && \
+    cp utils/aflpp_driver/libAFLDriver.a /
+
+
+RUN if which rustup; then rustup self uninstall -y; fi && \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > /rustup.sh && \
+    sh /rustup.sh --default-toolchain nightly-2024-08-12 -y && \
+    rm /rustup.sh
+
+
+RUN wget https://gist.githubusercontent.com/tokatoka/26f4ba95991c6e33139999976332aa8e/raw/698ac2087d58ce5c7a6ad59adce58dbfdc32bd46/createAliases.sh && \
+    chmod u+x ./createAliases.sh && ./createAliases.sh 
+# RUN rustup component add rustfmt clippy
+
+# Download libafl.
+RUN git clone https://github.com/AFLplusplus/LibAFL /libafl
+
+# Checkout a current commit
+RUN cd /libafl && git pull && git checkout f856092f3d393056b010fcae3b086769377cba18 || true
+# Note that due a nightly bug it is currently fixed to a known version on top!
+
+# Compile libafl.
+RUN cd /libafl && \
+    unset CFLAGS CXXFLAGS && \
+    export LIBAFL_EDGES_MAP_SIZE=2621440 && \
+    cd ./fuzzers/fuzzbench/fuzzbench && \
+    PATH="/root/.cargo/bin/:$PATH" cargo build --profile release-fuzzbench --features no_link_main
+
+# Auxiliary weak references.
+RUN cd /libafl/fuzzers/fuzzbench/fuzzbench && \
+    clang -c stub_rt.c && \
+    ar r /stub_rt.a stub_rt.o
+
+
+# RUN cargo install cargo-make
+# build afl-cc, afl-cxx compilers
+
+# RUN cd $SRC && ls ./build.sh
+# RUN cd $SRC && CC=/libafl/fuzzers/fuzzbench/fuzzbench/target/release-fuzzbench/libafl_cc \
+#     CXX=/libafl/fuzzers/fuzzbench/fuzzbench/target/release-fuzzbench/libafl_cxx \
+#     CFLAGS= CXXFLAGS= FUZZER_LIB="/stub_rt.a /libafl/fuzzers/fuzzbench/fuzzbench/target/release-fuzzbench/libfuzzbench.a" \
+#     ./build.sh 
+# RUN mv $OUT/cms_transform_fuzzer $OUT/libafl_target_bin
+# RUN $OUT/libafl_target_bin --help 
+
