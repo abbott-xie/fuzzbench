@@ -576,19 +576,36 @@ class EnsembleFuzzer:
             if os.path.isfile(src_path):
                 shutil.copy2(src_path, dst_path)
 
+    def merge_queue_directories(self, src_queue_dir, dst_queue_dir):
+        """
+        Merge contents from src queue directory into dst queue directory.
+        """
+        if not os.path.exists(src_queue_dir) or not os.path.exists(dst_queue_dir):
+            logging.warning(f"Cannot merge queues - source or destination directory does not exist")
+            return
+        
+        # Copy all files from src to dst, skipping if file already exists
+        for filename in os.listdir(src_queue_dir):
+            src_path = os.path.join(src_queue_dir, filename)
+            dst_path = os.path.join(dst_queue_dir, filename)
+            if os.path.isfile(src_path) and not os.path.exists(dst_path):
+                shutil.copy2(src_path, dst_path)
+
     def run(self):
         """
         Run the ensemble of fuzzers.
         Each fuzzer runs in a round-robin fashion.
-        For each fuzzer, create a new output directory and set up the input directory appropriately.
+        Each fuzzer uses the output from the previously successful run.
+        If a fuzzer errors, its queue is merged back into the last successful queue.
         """
         os.makedirs(self.output_dir, exist_ok=True)
-        prev_output_dir = None  # Keep track of previous fuzzer's output directory
+        prev_output_dir = None  # Keep track of previous successful fuzzer's output directory
+        last_successful_output_dir = None  # Keep track of the last successful run
 
         while len(self.fuzzer_queue):
             fuzzer = self.fuzzer_queue.popleft()
 
-            # Create unique input and output directories per fuzzer run
+            # Create unique output directory for this fuzzer run
             fuzzer_output_dir = os.path.join(
                 self.output_dir,
                 f"{fuzzer.name}_run_{fuzzer.run_cnt}"
@@ -596,24 +613,13 @@ class EnsembleFuzzer:
             os.makedirs(fuzzer_output_dir, exist_ok=True)
 
             # Set up the input directory
-            if fuzzer.run_cnt == 0:
-                # First run of this fuzzer
-                if prev_output_dir is None:
-                    # First fuzzer overall, use initial corpus_dir
-                    fuzzer_input_dir = self.initial_corpus_dir
-                else:
-                    # Subsequent fuzzers, use the previous fuzzer's output queue
-                    queue_dir = self.find_queue_directory(prev_output_dir)
-                    if queue_dir is None:
-                        logging.warning(f"No queue directory found in {prev_output_dir}. Using initial corpus.")
-                        fuzzer_input_dir = self.initial_corpus_dir
-                    else:
-                        fuzzer_input_dir = queue_dir
+            # For all runs, use prev_output_dir if available, otherwise use initial corpus
+            if prev_output_dir is None:
+                fuzzer_input_dir = self.initial_corpus_dir
             else:
-                # Subsequent runs of the same fuzzer, use its previous output queue
-                queue_dir = self.find_queue_directory(fuzzer.output_dir)
+                queue_dir = self.find_queue_directory(prev_output_dir)
                 if queue_dir is None:
-                    logging.warning(f"No queue directory found in {fuzzer.output_dir}. Using initial corpus.")
+                    logging.warning(f"No queue directory found in {prev_output_dir}. Using initial corpus.")
                     fuzzer_input_dir = self.initial_corpus_dir
                 else:
                     fuzzer_input_dir = queue_dir
@@ -631,26 +637,39 @@ class EnsembleFuzzer:
             fuzzer.output_dir = fuzzer_output_dir
 
             # Decide on timeout
-            # 如果队列里还有其它的 Fuzzer，就开启超时限制
             fuzzer.timeout = len(self.fuzzer_queue) > 0
 
             # Run the fuzzer
             fuzzer.run()
 
-            # After running the fuzzer, update prev_output_dir
-            prev_output_dir = fuzzer.output_dir
-
             if isinstance(fuzzer.run_err, Exception):
-                # If an actual error occurred (non-timeout), do not re-queue
-                logging.info(f"Fuzzer {fuzzer.name} encountered an error and will not be re-queued.")
+                # If an error occurred:
+                # 1. Try to merge any findings back into the last successful queue
+                # 2. Do not update prev_output_dir
+                # 3. Do not re-queue the fuzzer
+                logging.error(f"Fuzzer {fuzzer.name} encountered an error and will not be re-queued.")
+                
+                if last_successful_output_dir:
+                    current_queue = self.find_queue_directory(fuzzer_output_dir)
+                    last_successful_queue = self.find_queue_directory(last_successful_output_dir)
+                    
+                    if current_queue and last_successful_queue:
+                        logging.info(f"Merging findings from failed run into last successful queue")
+                        self.merge_queue_directories(current_queue, last_successful_queue)
+                    
+                # Restore prev_output_dir to last successful directory
+                prev_output_dir = last_successful_output_dir
             else:
+                # Successful run
+                # Update both prev_output_dir and last_successful_output_dir
+                prev_output_dir = fuzzer_output_dir
+                last_successful_output_dir = fuzzer_output_dir
+                
                 # Re-queue the fuzzer to run again
                 self.fuzzer_queue.append(fuzzer)
 
-        # If we exit the loop, no fuzzer is left
         logging.info("Fuzzing completed: all fuzzers have been processed.")
-
-
+        
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser()
