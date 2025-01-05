@@ -41,11 +41,6 @@ def install_all():
 
 
 def prepare_build_environment():
-    """
-    仅对 benchmark 做一些通用修复。
-    不在这里设置 CC/CXX/FUZZER_LIB，因为我们会分别在 build_fox_binary、build_ztaint_binary、
-    build_vanilla_binary、build_cmplog_binary 中对其设置。
-    """
     if is_benchmark("mbedtls"):
         file_path = os.path.join(os.getenv("SRC"), "mbedtls", "library", "CMakeLists.txt")
         if os.path.isfile(file_path):
@@ -69,14 +64,13 @@ def prepare_build_environment():
             subprocess.check_call(subst_cmd, shell=True)
 
 
-def get_fox_build_directory(target_directory):
-    """Return path to fox build directory."""
-    return os.path.join(target_directory, "fox")
+def get_hfuzz1_build_directory(target_directory):
+    return os.path.join(target_directory, "hfuzz1")
 
 
-def get_ztaint_build_directory(target_directory):
-    """Return path to ztaint build directory."""
-    return os.path.join(target_directory, "ztaint")
+def get_hfuzz2_build_directory(target_directory):
+    """Return path to hfuzz2 build directory."""
+    return os.path.join(target_directory, "hfuzz2")
 
 
 def get_vanilla_build_directory(target_directory):
@@ -88,25 +82,15 @@ def get_cmplog_build_directory(target_directory):
     """Return path to cmplog build directory."""
     return os.path.join(target_directory, "cmplog")
 
-def get_setcover_build_directory(target_directory):
-    return os.path.join(target_directory, "setcover");
+def get_hfuzz3_build_directory(target_directory):
+    return os.path.join(target_directory, "hfuzz3");
 
 def get_libafl_build_directory(target_directory):
     """Return path to libafl build directory."""
     return os.path.join(target_directory, "libafl")
 
-def build_fox_binary():
-    """
-    Build FOX-instrumented binary：
-      1) 清理 /dev/shm/*
-      2) 切换 CC/CXX/FUZZER_LIB => /fox
-      3) 创建 fox 目录
-      4) 调用 build_benchmark
-      5) 执行 gen_graph_no_gllvm_15.py (切换到 outdir)
-      6) 若成功，把产物复制回 /out
-      7) 把 FOX 生成的 br_node_id_2_cmp_type 等文件也复制到 /out
-    """
-    print("[build_fox_binary] Building FOX instrumentation.")
+def build_hfuzz1_binary():
+    print("[build_hfuzz1_binary] Building hfuzz1 instrumentation.")
     is_build_failed = False
 
     subprocess.check_call(["rm", "-f", "/dev/shm/*"])
@@ -121,22 +105,22 @@ def build_fox_binary():
     old_cxx = os.environ.get("CXX")
     old_lib = os.environ.get("FUZZER_LIB")
 
-    os.environ["CC"] = "/fox/afl-clang-fast"
-    os.environ["CXX"] = "/fox/afl-clang-fast++"
-    os.environ["FUZZER_LIB"] = "/fox/libAFLDriver.a"
+    os.environ["CC"] = "/hfuzz1/afl-clang-fast"
+    os.environ["CXX"] = "/hfuzz1/afl-clang-fast++"
+    os.environ["FUZZER_LIB"] = "/hfuzz1/libAFLDriver.a"
 
     os.environ["AFL_LLVM_DICT2FILE"] = os.path.join(out_dir, "keyval.dict")
     os.environ["AFL_LLVM_DICT2FILE_NO_MAIN"] = "1"
 
-    fox_dir = get_fox_build_directory(out_dir)
-    if not os.path.exists(fox_dir):
-        os.mkdir(fox_dir)
+    hfuzz1_dir = get_hfuzz1_build_directory(out_dir)
+    if not os.path.exists(hfuzz1_dir):
+        os.mkdir(hfuzz1_dir)
 
     with utils.restore_directory(src), utils.restore_directory(work):
         new_env = os.environ.copy()
-        new_env["OUT"] = fox_dir
+        new_env["OUT"] = hfuzz1_dir
         if fuzz_target:
-            new_env["FUZZ_TARGET"] = os.path.join(fox_dir, os.path.basename(fuzz_target))
+            new_env["FUZZ_TARGET"] = os.path.join(hfuzz1_dir, os.path.basename(fuzz_target))
 
         try:
             utils.build_benchmark(env=new_env)
@@ -145,29 +129,25 @@ def build_fox_binary():
             for f in ["br_src_map", "strcmp_err_log", "instrument_meta_data"]:
                 tmp_path = os.path.join("/dev/shm", f)
                 if os.path.exists(tmp_path):
-                    shutil.copy(tmp_path, os.path.join(fox_dir, f))
+                    shutil.copy(tmp_path, os.path.join(hfuzz1_dir, f))
 
-            # 在 FOX 编译结束之后，需要把下列文件复制到 /out：
-            # br_node_id_2_cmp_type、border_edges、max_border_edge_id、
-            # max_br_dist_edge_id、border_edges_cache。
-            # 假设它们和上面类似，均产自 /dev/shm/
-            FOX_FILES = [
+            HFUZZ1_FILES = [
                 "br_node_id_2_cmp_type",
                 "border_edges",
                 "max_border_edge_id",
                 "max_br_dist_edge_id",
                 "border_edges_cache"
             ]
-            for f in FOX_FILES:
-                fox_file_path = os.path.join("/dev/shm", f)
-                if os.path.exists(fox_file_path):
-                    shutil.copy(fox_file_path, os.path.join(fox_dir, f))
+            for f in HFUZZ1_FILES:
+                hfuzz1_file_path = os.path.join("/dev/shm", f)
+                if os.path.exists(hfuzz1_file_path):
+                    shutil.copy(hfuzz1_file_path, os.path.join(hfuzz1_dir, f))
 
-            # 切换到 fox_dir 调用 gen_graph_no_gllvm_15.py
-            graph_script = "/fox/gen_graph_no_gllvm_15.py"
+            # 切换到 hfuzz1_dir 调用 gen_graph_no_gllvm_15.py
+            graph_script = "/hfuzz1/gen_graph_no_gllvm_15.py"
             old_dir = os.getcwd()
             try:
-                os.chdir(fox_dir)
+                os.chdir(hfuzz1_dir)
                 final_fuzz_bin = new_env["FUZZ_TARGET"]
                 subprocess.check_call([
                     "python3", graph_script, final_fuzz_bin, "instrument_meta_data"
@@ -176,7 +156,7 @@ def build_fox_binary():
                 os.chdir(old_dir)
 
         except subprocess.CalledProcessError:
-            print("[build_fox_binary] Failed, skip.")
+            print("[build_hfuzz1_binary] Failed, skip.")
             is_build_failed = True
         finally:
             os.chdir(pwd)
@@ -187,40 +167,40 @@ def build_fox_binary():
             if old_lib is not None:
                 os.environ["FUZZER_LIB"] = old_lib
 
-    # 如果编译成功，把 fox_dir 下的 fuzz_target 拷贝回 out_dir
+    # 如果编译成功，把 hfuzz1_dir 下的 fuzz_target 拷贝回 out_dir
     if (not is_build_failed) and fuzz_target:
-        built_bin = os.path.join(fox_dir, os.path.basename(fuzz_target))
+        built_bin = os.path.join(hfuzz1_dir, os.path.basename(fuzz_target))
         if os.path.exists(built_bin):
-            shutil.copy(built_bin, os.path.join(out_dir, "fox_" + os.path.basename(fuzz_target)))
+            shutil.copy(built_bin, os.path.join(out_dir, "hfuzz1_" + os.path.basename(fuzz_target)))
 
-        # 同时也把 FOX_FILES 复制到 /out (如果它们在 fox_dir 里)
-        FOX_FILES = [
+        # 同时也把 HFUZZ1_FILES 复制到 /out (如果它们在 hfuzz1_dir 里)
+        HFUZZ1_FILES = [
             "br_node_id_2_cmp_type",
             "border_edges",
             "max_border_edge_id",
             "max_br_dist_edge_id",
             "border_edges_cache"
         ]
-        for f in FOX_FILES:
-            in_build_dir = os.path.join(fox_dir, f)
+        for f in HFUZZ1_FILES:
+            in_build_dir = os.path.join(hfuzz1_dir, f)
             if os.path.exists(in_build_dir):
                 shutil.copy(in_build_dir, os.path.join(out_dir, f))
 
     return (not is_build_failed)
 
 
-def build_ztaint_binary():
+def build_hfuzz2_binary():
     """
-    Build ZTaint-instrumented binary：
+    Build HFuzz2-instrumented binary：
       1) 清理 /dev/shm/*
-      2) 切换 CC/CXX/FUZZER_LIB => /ztaint
-      3) 创建 ztaint 目录
+      2) 切换 CC/CXX/FUZZER_LIB => /hfuzz2
+      3) 创建 hfuzz2 目录
       4) 调用 build_benchmark
-      5) 执行 gen_graph_no_gllvm_15.py (切换到 ztaint_dir)
+      5) 执行 gen_graph_no_gllvm_15.py (切换到 hfuzz2_dir)
       6) 若成功，把产物复制回 /out
-      7) 把 ZTaint 生成的 ztaint_br_node_id_2_cmp_type 等文件也复制到 /out
+      7) 把 HFuzz2 生成的 hfuzz2_br_node_id_2_cmp_type 等文件也复制到 /out
     """
-    print("[build_ztaint_binary] Building ZTaint instrumentation.")
+    print("[build_hfuzz2_binary] Building HFuzz2 instrumentation.")
     is_build_failed = False
 
     subprocess.check_call(["rm", "-f", "/dev/shm/*"])
@@ -235,22 +215,22 @@ def build_ztaint_binary():
     old_cxx = os.environ.get("CXX")
     old_lib = os.environ.get("FUZZER_LIB")
 
-    os.environ["CC"] = "/ztaint/afl-clang-fast"
-    os.environ["CXX"] = "/ztaint/afl-clang-fast++"
-    os.environ["FUZZER_LIB"] = "/ztaint/libAFLDriver.a"
+    os.environ["CC"] = "/hfuzz2/afl-clang-fast"
+    os.environ["CXX"] = "/hfuzz2/afl-clang-fast++"
+    os.environ["FUZZER_LIB"] = "/hfuzz2/libAFLDriver.a"
 
     os.environ["AFL_LLVM_DICT2FILE"] = os.path.join(out_dir, "keyval.dict")
     os.environ["AFL_LLVM_DICT2FILE_NO_MAIN"] = "1"
 
-    ztaint_dir = get_ztaint_build_directory(out_dir)
-    if not os.path.exists(ztaint_dir):
-        os.mkdir(ztaint_dir)
+    hfuzz2_dir = get_hfuzz2_build_directory(out_dir)
+    if not os.path.exists(hfuzz2_dir):
+        os.mkdir(hfuzz2_dir)
 
     with utils.restore_directory(src), utils.restore_directory(work):
         new_env = os.environ.copy()
-        new_env["OUT"] = ztaint_dir
+        new_env["OUT"] = hfuzz2_dir
         if fuzz_target:
-            new_env["FUZZ_TARGET"] = os.path.join(ztaint_dir, os.path.basename(fuzz_target))
+            new_env["FUZZ_TARGET"] = os.path.join(hfuzz2_dir, os.path.basename(fuzz_target))
 
         try:
             utils.build_benchmark(env=new_env)
@@ -258,12 +238,12 @@ def build_ztaint_binary():
             for f in ["br_src_map", "strcmp_err_log", "instrument_meta_data"]:
                 tmp_path = os.path.join("/dev/shm", f)
                 if os.path.exists(tmp_path):
-                    shutil.copy(tmp_path, os.path.join(ztaint_dir, f))
+                    shutil.copy(tmp_path, os.path.join(hfuzz2_dir, f))
 
-            graph_script = "/ztaint/gen_graph_no_gllvm_15.py"
+            graph_script = "/hfuzz2/gen_graph_no_gllvm_15.py"
             old_dir = os.getcwd()
             try:
-                os.chdir(ztaint_dir)
+                os.chdir(hfuzz2_dir)
                 final_fuzz_bin = new_env["FUZZ_TARGET"]
                 subprocess.check_call(["python3", graph_script,
                                        final_fuzz_bin, "instrument_meta_data"])
@@ -271,7 +251,7 @@ def build_ztaint_binary():
                 os.chdir(old_dir)
 
         except subprocess.CalledProcessError:
-            print("[build_ztaint_binary] Failed, skip.")
+            print("[build_hfuzz2_binary] Failed, skip.")
             is_build_failed = True
         finally:
             os.chdir(pwd)
@@ -283,20 +263,20 @@ def build_ztaint_binary():
                 os.environ["FUZZER_LIB"] = old_lib
 
     if (not is_build_failed) and fuzz_target:
-        built_bin = os.path.join(ztaint_dir, os.path.basename(fuzz_target))
+        built_bin = os.path.join(hfuzz2_dir, os.path.basename(fuzz_target))
         if os.path.exists(built_bin):
-            shutil.copy(built_bin, os.path.join(out_dir, "ztaint_" + os.path.basename(fuzz_target)))
+            shutil.copy(built_bin, os.path.join(out_dir, "hfuzz2_" + os.path.basename(fuzz_target)))
 
-        # 同时也将 ZTAINT_FILES 复制到 /out
-        ZTAINT_FILES = [
-            "ztaint_br_node_id_2_cmp_type",
-            "ztaint_border_edges",
-            "ztaint_max_border_edge_id",
-            "ztaint_max_br_dist_edge_id",
-            "ztaint_border_edges_cache"
+        # 同时也将 HFUZZ2_FILES 复制到 /out
+        HFUZZ2_FILES = [
+            "hfuzz2_br_node_id_2_cmp_type",
+            "hfuzz2_border_edges",
+            "hfuzz2_max_border_edge_id",
+            "hfuzz2_max_br_dist_edge_id",
+            "hfuzz2_border_edges_cache"
         ]
-        for f in ZTAINT_FILES:
-            in_build_dir = os.path.join(ztaint_dir, f)
+        for f in HFUZZ2_FILES:
+            in_build_dir = os.path.join(hfuzz2_dir, f)
             if os.path.exists(in_build_dir):
                 shutil.copy(in_build_dir, os.path.join(out_dir, f))
 
@@ -415,14 +395,14 @@ def build_cmplog_binary():
 
     return (not is_build_failed)
 
-def build_setcover_binary():
+def build_hfuzz3_binary():
 
     is_build_failed = False
-    print("[build_setcover_binary] Building setcover instrumentation.")
+    print("[build_hfuzz3_binary] Building hfuzz3 instrumentation.")
 
     out_dir = os.getenv("OUT")
     pwd = os.getcwd()
-    # src = os.path.join(out_dir, "setcover_target_bin")
+    # src = os.path.join(out_dir, "hfuzz3_target_bin")
     src = os.getenv("SRC")
     work = os.getenv("WORK")
 
@@ -436,28 +416,28 @@ def build_setcover_binary():
     old_cmp = os.environ.get("AFL_LLVM_CMPLOG")
 
 
-    os.environ["CC"] = "/setcover/afl-clang-fast"
-    os.environ["CXX"] = "/setcover/afl-clang-fast++"
+    os.environ["CC"] = "/hfuzz3/afl-clang-fast"
+    os.environ["CXX"] = "/hfuzz3/afl-clang-fast++"
     os.environ["FUZZER_LIB"] = "/afl_vanilla/libAFLDriver.a"
-    # macros = "-DAFL_CFG_PATH=\\\"setcover_sandcov_cfg\\\""
+    # macros = "-DAFL_CFG_PATH=\\\"hfuzz3_sandcov_cfg\\\""
     # os.environ["CFLAGS"] = macros
     # os.environ["CXXFLAGS"] = macros
 
-    setcover_dir = get_setcover_build_directory(out_dir)
+    hfuzz3_dir = get_hfuzz3_build_directory(out_dir)
 
-    if not os.path.exists(setcover_dir):
-        os.mkdir(setcover_dir)
+    if not os.path.exists(hfuzz3_dir):
+        os.mkdir(hfuzz3_dir)
 
     with utils.restore_directory(src), utils.restore_directory(work):
         new_env = os.environ.copy()
-        new_env["OUT"] = setcover_dir
+        new_env["OUT"] = hfuzz3_dir
 
         if fuzz_target is None:
             raise RuntimeError(f"FUZZ_TARGET is not set")
         if fuzz_target:
-            new_env["FUZZ_TARGET"] = os.path.join(setcover_dir, os.path.basename(fuzz_target))
+            new_env["FUZZ_TARGET"] = os.path.join(hfuzz3_dir, os.path.basename(fuzz_target))
     
-    # dst = os.path.join(out_dir, 'setcover_' + os.path.basename(fuzz_target))
+    # dst = os.path.join(out_dir, 'hfuzz3_' + os.path.basename(fuzz_target))
 
     # if os.path.exists(src):
     #     os.system(f"link {src} {dst}")
@@ -468,23 +448,23 @@ def build_setcover_binary():
         try:
             utils.build_benchmark(env=new_env)
 
-            for f in ["gen_graph.py", "setcover_sancov_cfg"]:
-                tmp_path = os.path.join("/setcover", f)
-                if os.path.exists(tmp_path):
-                    shutil.copy(tmp_path, os.path.join(setcover_dir, f))
+            # for f in ["gen_graph.py", "hfuzz3_sancov_cfg"]:
+            #     tmp_path = os.path.join("/hfuzz3", f)
+            #     if os.path.exists(tmp_path):
+            #         shutil.copy(tmp_path, os.path.join(hfuzz3_dir, f))
 
             
-            graph_script = "/setcover/gen_graph.py"
+            graph_script = "/hfuzz3/gen_graph.py"
             old_dir = os.getcwd()
             try:
-                os.chdir(setcover_dir)
+                os.chdir(hfuzz3_dir)
                 final_fuzz_bin = new_env["FUZZ_TARGET"]
                 subprocess.check_call(["python3", graph_script,
                                        final_fuzz_bin])
             finally:
                 os.chdir(old_dir)
         except subprocess.CalledProcessError:
-            print("[build_setcover_binary] Failed, skip.")
+            print("[build_hfuzz3_binary] Failed, skip.")
             is_build_failed = True
         finally:
             os.chdir(pwd)
@@ -500,11 +480,11 @@ def build_setcover_binary():
                 os.environ["FUZZER_LIB"] = old_lib
 
     if (not is_build_failed) and fuzz_target:
-        built_bin = os.path.join(setcover_dir, os.path.basename(fuzz_target))
+        built_bin = os.path.join(hfuzz3_dir, os.path.basename(fuzz_target))
         if os.path.exists(built_bin):
             shutil.copy(
                 built_bin,
-                os.path.join(out_dir, "setcover_" + os.path.basename(fuzz_target))
+                os.path.join(out_dir, "hfuzz3_" + os.path.basename(fuzz_target))
             )
 
     return (not is_build_failed)
@@ -591,25 +571,25 @@ def build_libafl_binary():
 def build():
     """
     在 OSS-Fuzz 中被调用的主要构建入口。
-    按顺序编译：fox、ztaint、vanilla、cmplog，
+    按顺序编译：hfuzz1、hfuzz2、vanilla、cmplog，
     并复制相应的 fuzzer 主程序到 /out。
     """
     install_all()
     prepare_build_environment()
 
-    built_fox     = build_fox_binary()
-    built_ztaint  = build_ztaint_binary()
+    built_hfuzz1     = build_hfuzz1_binary()
+    built_hfuzz2  = build_hfuzz2_binary()
     built_vanilla = build_vanilla_binary()
     built_cmplog  = build_cmplog_binary()
-    built_setcover = build_setcover_binary()
+    built_hfuzz3 = build_hfuzz3_binary()
     build_libafl = build_libafl_binary()
 
 
     # 复制 fuzzer 主程序。如果没编译成功, 也许不会用到, 但这里先都拷或者做检查
-    if os.path.exists("/fox/afl-fuzz"):
-        shutil.copy("/fox/afl-fuzz", os.path.join(os.environ["OUT"], "fox_4.30c_hybrid_start"))
-    if os.path.exists("/ztaint/afl-fuzz"):
-        shutil.copy("/ztaint/afl-fuzz", os.path.join(os.environ["OUT"], "ztaint_4.30c_hybrid_start"))
+    if os.path.exists("/hfuzz1/afl-fuzz"):
+        shutil.copy("/hfuzz1/afl-fuzz", os.path.join(os.environ["OUT"], "hfuzz1_4.30c_hybrid_start"))
+    if os.path.exists("/hfuzz2/afl-fuzz"):
+        shutil.copy("/hfuzz2/afl-fuzz", os.path.join(os.environ["OUT"], "hfuzz2_4.30c_hybrid_start"))
     if os.path.exists("/afl_vanilla/afl-fuzz"):
         shutil.copy("/afl_vanilla/afl-fuzz", os.path.join(os.environ["OUT"], "afl-fuzz-vanilla"))
         shutil.copy("/afl_vanilla/afl-fuzz", os.path.join(os.environ["OUT"], "cmplog_4.30c_hybrid_start"))
@@ -617,29 +597,29 @@ def build():
     # if os.path.exists("/PATH/to/libafl-fuzzer"):
     #     shutil.copy("/path/to/libafl-fuzzer", os.path.join(os.environ["OUT"], "libafl_fuzzer"))
     """
-    if os.path.exists("/setcover/main"):
-        shutil.copy("/setcover/main", os.path.join(os.environ["OUT"], "setcover_4.30c_hybrid_start"))
+    if os.path.exists("/hfuzz3/main"):
+        shutil.copy("/hfuzz3/main", os.path.join(os.environ["OUT"], "hfuzz3_4.30c_hybrid_start"))
     """
-    # if os.path.exists("/setcover/gen_graph.py"):
-    #     shutil.copy("/setcover/gen_graph.py", os.path.join(os.environ["OUT"], "gen_graph.py"))
-    if os.path.exists("/setcover/afl-fuzz"):
-        shutil.copy("/setcover/afl-fuzz", os.path.join(os.environ["OUT"], "setcover_fuzzer"))
-        shutil.copy("/setcover/afl-fuzz", os.path.join(os.environ["OUT"], "setcover_4.30c_hybrid_start"))
+    # if os.path.exists("/hfuzz3/gen_graph.py"):
+    #     shutil.copy("/hfuzz3/gen_graph.py", os.path.join(os.environ["OUT"], "gen_graph.py"))
+    if os.path.exists("/hfuzz3/afl-fuzz"):
+        shutil.copy("/hfuzz3/afl-fuzz", os.path.join(os.environ["OUT"], "hfuzz3_fuzzer"))
+        shutil.copy("/hfuzz3/afl-fuzz", os.path.join(os.environ["OUT"], "hfuzz3_4.30c_hybrid_start"))
 
 
     # ensemble_runner.py
-    if os.path.exists("/ztaint/ensemble_runner.py"):
-        shutil.copy("/ztaint/ensemble_runner.py", os.environ["OUT"])
+    if os.path.exists("/hfuzz2/ensemble_runner.py"):
+        shutil.copy("/hfuzz2/ensemble_runner.py", os.environ["OUT"])
 
     print("[build] Build results:")
-    print("  FOX     :", "OK" if built_fox else "FAIL")
-    print("  ZTaint  :", "OK" if built_ztaint else "FAIL")
+    print("  HFUZZ1     :", "OK" if built_hfuzz1 else "FAIL")
+    print("  HFuzz2  :", "OK" if built_hfuzz2 else "FAIL")
     print("  Vanilla :", "OK" if built_vanilla else "FAIL")
     print("  CmpLog  :", "OK" if built_cmplog else "FAIL")
     print("  LibAFL  :", "OK" if build_libafl else "FAIL")
-    print("  SetCover:", "OK" if built_setcover else "FAIL")
+    print("  HFuzz3:", "OK" if built_hfuzz3 else "FAIL")
 
-    if not any([built_fox, built_ztaint, built_vanilla, built_cmplog, build_libafl]):
+    if not any([built_hfuzz1, built_hfuzz2, built_vanilla, built_cmplog, build_libafl]):
         with open(os.path.join(os.getenv("OUT"), "is_vanilla"), "w") as f:
             f.write("all_failed")
         print("[build] All instrumentation failed.")
@@ -669,26 +649,22 @@ def prepare_fuzz_environment(input_corpus):
 #     )
 
 def run_afl_fuzz(input_corpus, output_corpus, target_binary, hide_output=False):
-    """
-    简单演示：判断是否存在 FOX / Ztaint / CmpLog 主程序，
-    如果有就 ensemble_runner，否则回退 vanilla。
-    """
     dictionary_path = utils.get_dictionary_path(target_binary)
     out_dir = os.getenv("OUT")
 
     van_bin = os.path.join(out_dir, "afl-fuzz-vanilla")
 
-    fox_built_path = os.path.join(out_dir, "fox_" + os.path.basename(target_binary))
-    ztaint_built_path = os.path.join(out_dir, "ztaint_" + os.path.basename(target_binary))
+    hfuzz1_built_path = os.path.join(out_dir, "hfuzz1_" + os.path.basename(target_binary))
+    hfuzz2_built_path = os.path.join(out_dir, "hfuzz2_" + os.path.basename(target_binary))
     cmplog_built_path = os.path.join(out_dir, "cmplog_" + os.path.basename(target_binary))
     libafl_build_path = os.path.join(out_dir, "libafl_" + os.path.basename(target_binary))
-    setcover_build_path = os.path.join(out_dir, "setcover_" + os.path.basename(target_binary))
+    hfuzz3_build_path = os.path.join(out_dir, "hfuzz3_" + os.path.basename(target_binary))
 
-    has_any_ensemble = any([os.path.exists(fox_built_path),
-                            os.path.exists(ztaint_built_path),
+    has_any_ensemble = any([os.path.exists(hfuzz1_built_path),
+                            os.path.exists(hfuzz2_built_path),
                             os.path.exists(cmplog_built_path),
                             os.path.exists(libafl_build_path),
-                            os.path.exists(setcover_build_path)])
+                            os.path.exists(hfuzz3_build_path)])
     if has_any_ensemble:
         cmd = [
             "python", "ensemble_runner.py",
@@ -696,11 +672,11 @@ def run_afl_fuzz(input_corpus, output_corpus, target_binary, hide_output=False):
             "-b", target_binary
         ]
         
-        if os.path.exists(fox_built_path):
-            cmd += ["--fox_target_binary", fox_built_path]
+        if os.path.exists(hfuzz1_built_path):
+            cmd += ["--hfuzz1_target_binary", hfuzz1_built_path]
         
-        if os.path.exists(ztaint_built_path):
-            cmd += ["--ztaint_target_binary", ztaint_built_path]
+        if os.path.exists(hfuzz2_built_path):
+            cmd += ["--hfuzz2_target_binary", hfuzz2_built_path]
         
         if os.path.exists(cmplog_built_path):
             cmd += ["--cmplog_target_binary", cmplog_built_path]
@@ -710,8 +686,8 @@ def run_afl_fuzz(input_corpus, output_corpus, target_binary, hide_output=False):
             cmd += ["--libafl_target_binary", libafl_build_path]
          
 
-        if os.path.exists(setcover_build_path):
-            cmd += ["--setcover_target_binary", setcover_build_path]
+        if os.path.exists(hfuzz3_build_path):
+            cmd += ["--hfuzz3_target_binary", hfuzz3_build_path]
 
         if dictionary_path:
             cmd += ["-x", os.path.join("/out", "keyval.dict"), dictionary_path]

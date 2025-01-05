@@ -1,11 +1,11 @@
 """
-Description: Ensemble runner for Cmplog, FOX, and ZTaint fuzzer modes.
+Description: Ensemble runner for Cmplog, HFUZZ1, and HFuzz2 fuzzer modes.
 
 Usage:
     python3 ensemble_runner.py -i [corpus_dir] -o [output_dir] -b [target_binary] -x [dicts]
-        --fox_target_binary [fox_target_binary]
+        --hfuzz1_target_binary [hfuzz1_target_binary]
         --cmplog_target_binary [cmplog_target_binary]
-        --ztaint_target_binary [ztaint_target_binary]
+        --hfuzz2_target_binary [hfuzz2_target_binary]
 
 Note:
     - Input and output directories are managed per fuzzer instance.
@@ -18,13 +18,13 @@ Alternatively, you can directly import the EnsembleFuzzer class and use it as fo
     EnsembleFuzzer(corpus_dir, output_dir, dicts,
                    target_binary,
                    cmplog_target_binary,
-                   fox_target_binary,
-                   ztaint_target_binary).run()
+                   hfuzz1_target_binary,
+                   hfuzz2_target_binary).run()
 
-Required fuzzer binaries in the current directory (names/paths modifiable in the script, see CMPLOG_FUZZ_BIN_NAME, FOX_FUZZ_BIN_NAME, and ZTAINT_FUZZ_BIN_NAME):
-    - fox_4.30c_hybrid_start
+Required fuzzer binaries in the current directory (names/paths modifiable in the script, see CMPLOG_FUZZ_BIN_NAME, HFUZZ1_FUZZ_BIN_NAME, and HFUZZ2_FUZZ_BIN_NAME):
+    - hfuzz1_4.30c_hybrid_start
     - cmplog_4.30c_hybrid_start
-    - ztaint_4.30c_hybrid_start
+    - hfuzz2_4.30c_hybrid_start
 
 Environment variables touched:
     - None
@@ -45,15 +45,15 @@ from typing import List, Deque
 INT_MAX = '2147483647'
 COMMON_ARGS = ['-m', 'none', '-d', '-t', '1000+']
 CMPLOG_FUZZ_BIN_NAME = "./cmplog_4.30c_hybrid_start"
-SETCOVER_FUZZ_BIN_NAME = "./setcover_4.30c_hybrid_start"
-FOX_FUZZ_BIN_NAME = "./fox_4.30c_hybrid_start"
-ZTAINT_FUZZ_BIN_NAME = "./ztaint_4.30c_hybrid_start"
+HFUZZ3_FUZZ_BIN_NAME = "./hfuzz3_4.30c_hybrid_start"
+HFUZZ1_FUZZ_BIN_NAME = "./hfuzz1_4.30c_hybrid_start"
+HFUZZ2_FUZZ_BIN_NAME = "./hfuzz2_4.30c_hybrid_start"
 
 # Timeout strategies (in seconds)
 TMOUT_CMPLOG = 60 * 60    # 90 minutes
-TIMEOUT_SETCOVER = 60 * 60 
-TMOUT_FOX = 8 * 60 * 60      # 120 minutes
-TMOUT_ZTAINT = 60 * 60   # 120 minutes
+TIMEOUT_HFUZZ3 = 60 * 60 
+TMOUT_HFUZZ1 = 8 * 60 * 60      # 120 minutes
+TMOUT_HFUZZ2 = 60 * 60   # 120 minutes
 TIMEOUT_LIBAFL = 60 * 60       # 1 minute
 
 
@@ -319,15 +319,15 @@ class LibAFLFuzzer(AFLFuzzer):
             self.run_err = e
 
 
-class SetCoverFuzzer(AFLFuzzer):
-    setcover_target_binary: str
+class HFuzz3Fuzzer(AFLFuzzer):
+    hfuzz3_target_binary: str
 
     """
     Example usage:
-    ./setcover_fuzzer -H -c /out/setcover_cms_transform_fuzzer -m none -d -t 1000+ \\
+    ./hfuzz3_fuzzer -H -c /out/hfuzz3_cms_transform_fuzzer -m none -d -t 1000+ \\
         -x /out/keyval.dict -x /out/cms_transform_fuzzer.dict \\
-        -i /out/corpus/ensemble_fuzzer/setcover_input_0 \\
-        -o '/out/corpus/ensemble_fuzzer/setcover_run_0' \\
+        -i /out/corpus/ensemble_fuzzer/hfuzz3_input_0 \\
+        -o '/out/corpus/ensemble_fuzzer/hfuzz3_run_0' \\
         -- /out/cms_transform_fuzzer 2147483648
     """
 
@@ -337,11 +337,11 @@ class SetCoverFuzzer(AFLFuzzer):
         output_dir: str,
         dicts: List[str],
         target_binary: str,
-        setcover_target_binary: str,
+        hfuzz3_target_binary: str,
         args: List[str]
     ):
-        self.setcover_target_binary = setcover_target_binary
-        super().__init__("setcover", corpus_dir, output_dir, dicts, target_binary, args)
+        self.hfuzz3_target_binary = hfuzz3_target_binary
+        super().__init__("hfuzz3", corpus_dir, output_dir, dicts, target_binary, args)
 
     def build_command(self):
         """
@@ -351,15 +351,15 @@ class SetCoverFuzzer(AFLFuzzer):
         out_dir = os.getenv("OUT")
         fuzz_target = os.getenv("FUZZ_TARGET")
         self.command = [
-            SETCOVER_FUZZ_BIN_NAME,
+            HFUZZ3_FUZZ_BIN_NAME,
             "-H", "-c",
-            self.setcover_target_binary
+            self.hfuzz3_target_binary
         ]
         self.add_common_args()
 
     def get_timeout(self):
         """Get the timeout value for the Cmplog fuzzer (in seconds)."""
-        return TIMEOUT_SETCOVER
+        return TIMEOUT_HFUZZ3
 
 class CmplogFuzzer(AFLFuzzer):
     """Fuzzer class for the Cmplog mode."""
@@ -394,8 +394,8 @@ class CmplogFuzzer(AFLFuzzer):
         return TMOUT_CMPLOG
 
 
-class FoxFuzzer(AFLFuzzer):
-    """Fuzzer class for the FOX mode."""
+class HFuzz1Fuzzer(AFLFuzzer):
+    """Fuzzer class for the HFUZZ1 mode."""
 
     def __init__(
         self,
@@ -405,12 +405,12 @@ class FoxFuzzer(AFLFuzzer):
         target_binary: str,
         args: List[str]
     ):
-        super().__init__("fox", corpus_dir, output_dir, dicts, target_binary, args)
+        super().__init__("hfuzz1", corpus_dir, output_dir, dicts, target_binary, args)
 
     def build_command(self):
-        """Build the command for running the FOX fuzzer."""
+        """Build the command for running the HFUZZ1 fuzzer."""
         self.command = [
-            FOX_FUZZ_BIN_NAME,
+            HFUZZ1_FUZZ_BIN_NAME,
             '-k',
             '-p',
             'wd_scheduler'
@@ -418,12 +418,12 @@ class FoxFuzzer(AFLFuzzer):
         self.add_common_args()
 
     def get_timeout(self):
-        """Get the timeout value for the FOX fuzzer (in seconds)."""
-        return TMOUT_FOX
+        """Get the timeout value for the HFUZZ1 fuzzer (in seconds)."""
+        return TMOUT_HFUZZ1
 
 
-class ZTaintFuzzer(AFLFuzzer):
-    """Fuzzer class for the ZTaint mode."""
+class HFuzz2Fuzzer(AFLFuzzer):
+    """Fuzzer class for the HFuzz2 mode."""
     cmplog_target_binary: str
 
     def __init__(
@@ -437,28 +437,28 @@ class ZTaintFuzzer(AFLFuzzer):
     ):
         """
         如果传入了 cmplog_target_binary，则在构造命令时加上 -c cmplog_target_binary。
-        target_binary 为 ZTaint 编译出的可执行文件。
+        target_binary 为 HFuzz2 编译出的可执行文件。
         """
         self.cmplog_target_binary = cmplog_target_binary
-        super().__init__("ztaint", corpus_dir, output_dir, dicts, target_binary, args)
+        super().__init__("hfuzz2", corpus_dir, output_dir, dicts, target_binary, args)
 
     def build_command(self):
-        """Build the command for running the ZTaint fuzzer."""
+        """Build the command for running the HFuzz2 fuzzer."""
         if self.cmplog_target_binary:
             # 如果有 cmplog_target_binary，则像 cmplog 一样加上 -c 参数
             self.command = [
-                ZTAINT_FUZZ_BIN_NAME,
+                HFUZZ2_FUZZ_BIN_NAME,
                 '-c',
                 self.cmplog_target_binary
             ]
         else:
             # 否则普通运行
-            self.command = [ZTAINT_FUZZ_BIN_NAME]
+            self.command = [HFUZZ2_FUZZ_BIN_NAME]
         self.add_common_args()
 
     def get_timeout(self):
-        """Get the timeout value for the ZTaint fuzzer (in seconds)."""
-        return TMOUT_ZTAINT
+        """Get the timeout value for the HFuzz2 fuzzer (in seconds)."""
+        return TMOUT_HFUZZ2
 
 
 class EnsembleFuzzer:
@@ -482,10 +482,10 @@ class EnsembleFuzzer:
         dicts: List[str],
         target_binary: str,
         cmplog_target_binary: str,
-        fox_target_binary: str,
-        ztaint_target_binary: str,
+        hfuzz1_target_binary: str,
+        hfuzz2_target_binary: str,
         libafl_target_binary: str,
-        setcover_target_binary: str,
+        hfuzz3_target_binary: str,
         args: List[str]
     ):
         self.output_dir = os.path.join(output_dir, "ensemble_fuzzer")
@@ -496,25 +496,25 @@ class EnsembleFuzzer:
 
         # 1. 如果没有提供这几个参数，就不会将其添加到队列
         #   - 注意这里默认 target_binary 是普通的 AFL 编译产物，必需的
-        #   - cmplog_target_binary、fox_target_binary、ztaint_target_binary 则是可选的
-        if ztaint_target_binary:
+        #   - cmplog_target_binary、hfuzz1_target_binary、hfuzz2_target_binary 则是可选的
+        if hfuzz2_target_binary:
             self.fuzzer_queue.append(
-                ZTaintFuzzer(
+                HFuzz2Fuzzer(
                     corpus_dir=None,
                     output_dir=None,
                     dicts=self.dicts,
-                    target_binary=ztaint_target_binary,
+                    target_binary=hfuzz2_target_binary,
                     cmplog_target_binary=cmplog_target_binary,
                     args=self.args
                 )
             )
-        if fox_target_binary:
+        if hfuzz1_target_binary:
             self.fuzzer_queue.append(
-                FoxFuzzer(
+                HFuzz1Fuzzer(
                     corpus_dir=None,
                     output_dir=None,
                     dicts=self.dicts,
-                    target_binary=fox_target_binary,
+                    target_binary=hfuzz1_target_binary,
                     args=self.args
                 )
             )
@@ -541,14 +541,14 @@ class EnsembleFuzzer:
                 )
             )
  
-        if setcover_target_binary:
+        if hfuzz3_target_binary:
             self.fuzzer_queue.append(
-                SetCoverFuzzer(
+                HFuzz3Fuzzer(
                     corpus_dir=None,
                     output_dir=None,
                     dicts=self.dicts,
                     target_binary=target_binary,
-                    setcover_target_binary=setcover_target_binary,
+                    hfuzz3_target_binary=hfuzz3_target_binary,
                     args=self.args
                 )
             )
@@ -664,16 +664,16 @@ def parse_args():
                         help="Arguments to pass to the target binary")
     parser.add_argument("-x", "--dicts", type=str, nargs="+", default=None,
                         help="Path to the dictionaries; if not provided, will use all .dict files in the current directory")
-    parser.add_argument("--fox_target_binary", type=str, required=False,
-                        help="Path to the FOX-instrumented target binary (optional)")
+    parser.add_argument("--hfuzz1_target_binary", type=str, required=False,
+                        help="Path to the HFuzz1-instrumented target binary (optional)")
     parser.add_argument("--cmplog_target_binary", type=str, required=False,
                         help="Path to the cmplog-instrumented target binary (optional)")
-    parser.add_argument("--ztaint_target_binary", type=str, required=False,
-                        help="Path to the ZTaint-instrumented target binary (optional)")
+    parser.add_argument("--hfuzz2_target_binary", type=str, required=False,
+                        help="Path to the HFuzz2-instrumented target binary (optional)")
     parser.add_argument("--libafl_target_binary", type=str, required=False,
                         help="Path to the LibAFL-instrumented target binary (optional)")
-    parser.add_argument("--setcover_target_binary", type=str, required=False,
-                        help="Path to the Setcover-instrumented target binary (optional)")
+    parser.add_argument("--hfuzz3_target_binary", type=str, required=False,
+                        help="Path to the HFuzz3-instrumented target binary (optional)")
     return parser.parse_args()
 
 
@@ -698,10 +698,10 @@ def main(args):
         dicts=args.dicts,
         target_binary=args.target_binary,
         cmplog_target_binary=args.cmplog_target_binary,
-        fox_target_binary=args.fox_target_binary,
-        ztaint_target_binary=args.ztaint_target_binary,
+        hfuzz1_target_binary=args.hfuzz1_target_binary,
+        hfuzz2_target_binary=args.hfuzz2_target_binary,
         libafl_target_binary=args.libafl_target_binary,
-        setcover_target_binary=args.setcover_target_binary,
+        hfuzz3_target_binary=args.hfuzz3_target_binary,
         args=args.args
     )
     fuzzer.run()

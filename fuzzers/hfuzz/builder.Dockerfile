@@ -34,13 +34,11 @@ RUN apt-get update && \
         gcc-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-plugin-dev \
         libstdc++-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-dev
 
-# Download FOX
-RUN git clone https://github.com/abbott-xie/AFLplusplus.git /fox
-RUN git -C /fox checkout instrument_specific_4.30c
+RUN git clone https://github.com/abbott-xie/AFLplusplus.git /hfuzz1
+RUN git -C /hfuzz1 checkout instrument_specific_4.30c
 
-# Download Ztaint
-RUN git clone https://github.com/abbott-xie/AFLplusplus.git /ztaint
-RUN git -C /ztaint checkout ada_taint_log_v4.30c
+RUN git clone https://github.com/abbott-xie/AFLplusplus.git /hfuzz2
+RUN git -C /hfuzz2 checkout ada_taint_log_v4.30c
 
 # Download afl++.
 RUN git clone -b dev https://github.com/AFLplusplus/AFLplusplus /afl_vanilla  && \
@@ -48,7 +46,7 @@ RUN git clone -b dev https://github.com/AFLplusplus/AFLplusplus /afl_vanilla  &&
     git checkout tags/v4.30c || \
     true
 
-RUN git clone https://github.com/Sweetaroo/SeedScheduleTest.git /setcover
+RUN git clone https://github.com/Sweetaroo/SeedScheduleTest.git /hfuzz3
 
 # Install dependencies.
 RUN apt-get update && \
@@ -68,25 +66,25 @@ RUN cd /afl_vanilla && \
     PYTHON_INCLUDE=/ make && \
     cp utils/aflpp_driver/libAFLDriver.a /
 
-RUN cd /fox && \
+RUN cd /hfuzz1 && \
     unset CFLAGS CXXFLAGS && \
     export CC=clang-15 AFL_NO_X86=1 && \
     PYTHON_INCLUDE=/ make && \
     cp utils/aflpp_driver/libAFLDriver.a /
 
-RUN cd /ztaint && \
+RUN cd /hfuzz2 && \
     unset CFLAGS CXXFLAGS && \
     export CC=clang-15 AFL_NO_X86=1 && \
     PYTHON_INCLUDE=/ make && \
     cp utils/aflpp_driver/libAFLDriver.a /
 
-# The setcover fuzzer
-COPY ./ensemble_runner.py /ztaint/ensemble_runner.py
-# COPY ./setcover /setcover
-RUN cd /setcover && \
+# The hfuzz3 fuzzer
+COPY ./ensemble_runner.py /hfuzz2/ensemble_runner.py
+# COPY ./hfuzz3 /hfuzz3
+RUN cd /hfuzz3 && \
     unset CFLAGS CXXFLAGS && \
     export CC=clang-15 AFL_NO_X86=1 && \
-    PYTHON_INCLUDE=/ CFLAGS="-DAFL_CFG_PATH=\\\"/out/setcover/setcover_sancov_cfg\\\"" CXXFLAGS="-DAFL_CFG_PATH=\\\"/out/setcover/setcover_sancov_cfg\\\"" make source-only && \
+    PYTHON_INCLUDE=/ CFLAGS="-DAFL_CFG_PATH=\\\"/out/hfuzz3/hfuzz3_sancov_cfg\\\"" CXXFLAGS="-DAFL_CFG_PATH=\\\"/out/hfuzz3/hfuzz3_sancov_cfg\\\"" make source-only && \
     cp utils/aflpp_driver/libAFLDriver.a /
 
 
